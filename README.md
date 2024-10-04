@@ -1,5 +1,7 @@
 # Rustbucket
 
+![Rustbucket Logo](https://drive.google.com/uc?id=1RHe19I8YuFVjgXVx5BkwnxkhgLr9dzz6)
+
 Rustbucket is a lightweight honeypot written in Rust that runs on virtual machines and containers exposed to the internet. By simulating common services on commonly attacked ports, Rustbucket captures and logs malicious activity for analysis.
 
 ## Features
