@@ -1,1 +1,25 @@
-/target
+# Rust build output
+/target/
+
+# Generated files
+*.rs.bk
+
+# Logs
+/logs/
+
+# Configuration files
+*.toml
+
+# Cargo.lock (if you want to ignore it, generally it's better to commit it)
+# Cargo.lock
+
+# IDE files
+.idea/
+.vscode/
+
+# MacOS system files
+.DS_Store
+
+# Windows system files
+Thumbs.db
+ehthumbs.db
