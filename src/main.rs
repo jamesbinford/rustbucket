@@ -1,10 +1,15 @@
 mod handlers;
 mod emulators;
 mod logger;
+mod config;
+
+use std::net::TcpStream;
+use std::net::TcpListener;
+use config::Config;
 
 #[tokio::main]
 async fn main() {
-    let config = load_config("config.toml");
+    let config = Config::new();
     start_honeypot(config).await;
 }
 

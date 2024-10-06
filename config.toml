@@ -15,3 +15,6 @@ ssh = { enabled = true, port = 22 }
 http = { enabled = true, port = 80 }
 ftp = { enabled = false, port = 21 }
 # Add more services as needed
+
+[chatgpt]
+api_key = "chatgpt-api-key"
