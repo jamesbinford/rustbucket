@@ -9,12 +9,13 @@ log_directory = "./logs"
 # Whether to enable verbose logging
 verbose = false
 
-# Enable or disable specific ports
 [ports]
 ssh = { enabled = true, port = 22 }
 http = { enabled = true, port = 80 }
 ftp = { enabled = false, port = 21 }
-# Add more services as needed
+sftp = { enabled = false, port = 115 }
+smtp = { enabled = false, port = 25 }
+dns = { enabled = false, port = 53 }
 
 [chatgpt]
 api_key = "chatgpt-api-key"

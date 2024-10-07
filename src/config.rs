@@ -1,6 +1,6 @@
 //! Configuration for the application
 use serde::Deserialize;
-use figment::{Figment, providers::{Format, Toml}};
+use figment::{Figment, providers::{Toml,Format}};
 
 // Structs
 #[derive(Debug, Deserialize)]

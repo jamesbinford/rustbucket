@@ -10,6 +10,9 @@ use config::Config;
 #[tokio::main]
 async fn main() {
     let config = Config::new();
+    println!("{}", config.ports.ssh.port);
+    println!("{}", config.ports.http.port);
+    println!("{}", config.ports.ftp.port);
     //start_honeypot(config).await;
 }
 
