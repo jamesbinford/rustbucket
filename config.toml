@@ -17,6 +17,7 @@ sftp = { enabled = false, port = 115 }
 smtp = { enabled = false, port = 25 }
 dns = { enabled = false, port = 53 }
 sms = { enabled = false, port = 5000 }
+abc = ;
 
 [chatgpt]
 api_key = "chatgpt-api-key"
