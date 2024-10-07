@@ -1,17 +1,45 @@
 //! Configuration for the application
+use serde::Deserialize;
+use figment::{Figment, providers::{Format, Toml}};
 
-//. Dependencies
-use std::fs;
-use std::io::Error as IoError;
-
-//. Structs
-#[derive(Debug)]
+// Structs
+#[derive(Debug, Deserialize)]
 pub struct Config {
-	pub ssh: u16,
+	pub general: General,
+	pub ports: Ports,
+	pub chatgpt: ChatGPT,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct General {
+	pub log_level: String,
+	pub log_directory: String,
+	pub verbose: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Ports {
+	pub ssh: Service,
+	pub http: Service,
+	pub ftp: Service,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Service {
+	pub enabled: bool,
+	pub port: u16,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ChatGPT {
+	pub api_key: String,
 }
 
 impl Config {
 	pub fn new() -> Self {
-		
+		Figment::new()
+			.merge(Toml::file("config.toml"))
+			.extract()
+			.expect("Failed to load configuration")
 	}
 }
