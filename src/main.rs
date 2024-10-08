@@ -10,13 +10,10 @@ use config::Config;
 #[tokio::main]
 async fn main() {
     let config = Config::new();
-    println!("{}", config.ports.ssh.port);
-    println!("{}", config.ports.http.port);
-    println!("{}", config.ports.ftp.port);
-    //start_honeypot(config).await;
+    start_honeypot(config).await;
 }
 
-/*async fn start_honeypot(config: Config) {
+async fn start_honeypot(config: Config) {
     // Set up listeners for specified ports
     for port in vec![config.ports.ssh.port, config.ports.http.port, config.ports.ftp.port] {
         tokio::spawn(async move {
@@ -27,15 +24,15 @@ async fn main() {
             }
         });
     }
-}*/
+}
 
-//async fn handle_connection(socket: TcpStream, port: u16) {
-  //  match port {
-    //    22 => emulate_ssh(socket).await,
+async fn handle_connection(socket: TcpStream, port: u16) {
+   match port {
+       22 => println!("SSH connection"),
         // Add other ports and their respective emulation functions
-      //  _ => {}
-    //}
-//}
+       _ => {}
+    }
+}
 
 //async fn emulate_ssh(mut socket: TcpStream) {
     // Send SSH banner
