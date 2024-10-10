@@ -2,6 +2,7 @@ mod handlers;
 mod emulators;
 mod logger;
 mod config;
+mod chatgpt;
 
 use std::net::TcpStream;
 use std::net::TcpListener;

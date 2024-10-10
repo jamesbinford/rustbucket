@@ -20,3 +20,8 @@ sms = { enabled = false, port = 5000 }
 
 [chatgpt]
 api_key = "chatgpt-api-key"
+
+[chatgpt_pretext]
+message1 = "This is the first static message."
+message2 = "This is the second static message."
+message3 = "This is the third static message."
