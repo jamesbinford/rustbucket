@@ -8,7 +8,7 @@
 /logs/
 
 # Configuration files
-*.toml
+config.toml
 
 # Cargo.lock (if you want to ignore it, generally it's better to commit it)
 # Cargo.lock

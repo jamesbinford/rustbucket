@@ -1,44 +1,57 @@
-mod handlers;
-mod emulators;
-mod logger;
-mod config;
+mod chatgpt;
 
-use std::net::TcpStream;
-use std::net::TcpListener;
-use config::Config;
+use tokio::net::TcpListener;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use chatgpt::ChatGPT;
+use std::error::Error;
+use std::sync::Arc;
 
 #[tokio::main]
-async fn main() {
-    let config = Config::new();
-    println!("{}", config.ports.ssh.port);
-    println!("{}", config.ports.http.port);
-    println!("{}", config.ports.ftp.port);
-    //start_honeypot(config).await;
-}
-
-/*async fn start_honeypot(config: Config) {
-    // Set up listeners for specified ports
-    for port in vec![config.ports.ssh.port, config.ports.http.port, config.ports.ftp.port] {
+async fn main() -> Result<(), Box<dyn Error>> {
+    // Load configuration and create a shared ChatGPT instance
+    let chatgpt = Arc::new(ChatGPT::new("config.toml")?);
+    
+    // Create a TCP listener bound to a specific address and port
+    let listener = TcpListener::bind("127.0.0.1:8080").await?;
+    println!("Honeypot listening on 127.0.0.1:8080");
+    
+    loop {
+        // Accept an incoming connection
+        let (mut socket, addr) = listener.accept().await?;
+        println!("Accepted connection from {:?}", addr);
+        
+        // Clone the ChatGPT instance to be used in the async task
+        let chatgpt_clone = chatgpt.clone();
+        
+        // Spawn a new task to handle the connection
         tokio::spawn(async move {
-            let listener = TcpListener::bind(format!("0.0.0.0:{}", port)).await.unwrap();
-            loop {
-                let (socket, _) = listener.accept().await.unwrap();
-                tokio::spawn(handle_connection(socket, port));
+            let mut buffer = [0u8; 1024];
+            
+            // Read data from the socket
+            match socket.read(&mut buffer).await {
+                Ok(n) if n == 0 => return, // Connection was closed
+                Ok(n) => {
+                    // Convert the buffer data to a string
+                    let received_data = String::from_utf8_lossy(&buffer[..n]);
+                    println!("Received: {}", received_data);
+                    
+                    // Send the captured data to ChatGPT for a response
+                    let response = chatgpt_clone
+                        .send_message(&received_data)
+                        .await
+                        .unwrap_or_else(|e| format!("Error from ChatGPT: {}", e));
+                    
+                    println!("ChatGPT says: {}", response);
+                    
+                    // Send the response back to the client
+                    if let Err(e) = socket.write_all(response.as_bytes()).await {
+                        eprintln!("Failed to write to socket: {}", e);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Failed to read from socket: {}", e);
+                }
             }
         });
     }
-}*/
-
-//async fn handle_connection(socket: TcpStream, port: u16) {
-  //  match port {
-    //    22 => emulate_ssh(socket).await,
-        // Add other ports and their respective emulation functions
-      //  _ => {}
-    //}
-//}
-
-//async fn emulate_ssh(mut socket: TcpStream) {
-    // Send SSH banner
-  //  socket.write_all(b"SSH-2.0-Rustbucket\r\n").await.unwrap();
-    // Log interactions, etc.
-//}
+}
