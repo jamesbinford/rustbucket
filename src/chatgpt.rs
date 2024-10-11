@@ -1,6 +1,7 @@
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
+use config::{Config, File};
 
 // Struct for loading configuration
 #[derive(Debug, Deserialize)]
@@ -102,4 +103,12 @@ impl ChatGPT {
 			.post(url)
 			.header("Authorization", format!("Bearer {}", self.api_key))
 			.json(&request_body)
-			.send
+			.send()
+			.await?;
+		
+		let response_json: ChatGPTResponse = response.json().await?;
+		let reply = &response_json.choices[0].message.content;
+		
+		Ok(reply.to_string())
+	}
+}
