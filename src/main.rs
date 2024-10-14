@@ -27,9 +27,7 @@ async fn handle_client(mut stream: tokio::net::TcpStream) {
 }
 
 async fn start_listener(addr: &str) -> tokio::io::Result<()> {
-    let listener = TcpListener::bind(addr).await?;
-    println!("Listening on {}", addr);
-    
+    let listener = TcpListener::bind(addr).await?;    
     // Retrieve the actual address and port the listener is bound to
     let listener_addr = listener.local_addr()?;
     println!("Listening on {}", listener_addr);
@@ -42,19 +40,19 @@ async fn start_listener(addr: &str) -> tokio::io::Result<()> {
                 // Spawn a new task to handle the connection asynchronously
                 task::spawn(async move {
                     match listener_addr.port() {
-                        8080 => {
-                            // Handle connection for port 8080
-                            println!("Welcome to 8080!");
+                        22 => {
+                            // Handle connection for port 22
+                            println!("Welcome to SSH!");
                             handle_client(stream).await;
                         }
-                        8181 => {
-                            // Handle connection for port 8181
-                            println!("Welcome to 8181!");
+                        80 => {
+                            // Handle connection for port 80
+                            println!("Welcome to Web!");
                             handle_client(stream).await;
                         }
-                        2250 => {
-                            // Handle connection for port 2250
-                            println!("Welcome to 2250!");
+                        25 => {
+                            // Handle connection for port 25
+                            println!("Welcome to SMTP!");
                             handle_client(stream).await;
                         }
                         _ => {
@@ -73,7 +71,7 @@ async fn start_listener(addr: &str) -> tokio::io::Result<()> {
 #[tokio::main]
 async fn main() -> tokio::io::Result<()> {
     // Create tasks for each listener on different ports
-    let ports = vec!["127.0.0.1:8080", "127.0.0.1:8181", "127.0.0.1:2250"];
+    let ports = vec!["127.0.0.1:22", "127.0.0.1:80", "127.0.0.1:25"];
     
     let mut handles = vec![];
     
