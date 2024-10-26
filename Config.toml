@@ -19,4 +19,4 @@ dns = { enabled = false, port = 53 }
 sms = { enabled = false, port = 5000 }
 
 [chatgpt]
-api_key = "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"
+api_key = ""
