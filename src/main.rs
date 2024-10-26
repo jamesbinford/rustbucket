@@ -1,8 +1,10 @@
+mod chatgpt;
+
 use tokio::net::TcpListener;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::task;
-
-async fn handle_client(mut stream: tokio::net::TcpStream) {
+use chatgpt::ChatGPT;
+async fn handle_client(mut stream: tokio::net::TcpStream, message: String) {
     let mut buffer = [0; 1024];
     
     loop {
@@ -12,8 +14,12 @@ async fn handle_client(mut stream: tokio::net::TcpStream) {
                 break;
             }
             Ok(n) => {
-                // Echo the received data back to the client
-                if let Err(e) = stream.write_all(&buffer[0..n]).await {
+                // Pass user input to ChatGPT, parse the GPT response and send it back to the user
+                // @TODO: Implement ChatGPT API
+                let received_data = String::from_utf8_lossy(&buffer[0..n]);
+                let response_message = format!("{}", message);
+                
+                if let Err(e) = stream.write_all(response_message.as_bytes()).await {
                     println!("Failed to send data: {}", e);
                     break;
                 }
@@ -39,21 +45,24 @@ async fn start_listener(addr: &str) -> tokio::io::Result<()> {
                 println!("New connection on {}: {}", client_addr, client_addr);
                 // Spawn a new task to handle the connection asynchronously
                 task::spawn(async move {
-                    match listener_addr.port() {
-                        22 => {
-                            // Handle connection for port 22
-                            println!("Welcome to SSH!");
-                            handle_client(stream).await;
-                        }
-                        80 => {
-                            // Handle connection for port 80
-                            println!("Welcome to Web!");
-                            handle_client(stream).await;
-                        }
+                    match listener_addr.port() {                        
                         25 => {
                             // Handle connection for port 25
                             println!("Welcome to SMTP!");
-                            handle_client(stream).await;
+                            let message = "220 mail.example.com ESMTP Postfix (Ubuntu)".to_string();
+                            handle_client(stream, message).await;
+                        }
+                        80 => {
+                            // Handle connection for port 23
+                            println!("Welcome to Telnet!");
+                            let message = "GET / HTTP/1.1\nHost: example.com".to_string();
+                            handle_client(stream, message).await;
+                        }
+                        21 => {
+                            // Handle connection for port 21
+                            println!("Welcome to FTP!");
+                            let message = "220 (vsFTPd 3.0.3)".to_string();
+                            handle_client(stream, message).await;
                         }
                         _ => {
                             println!("Unexpected port: {}", port);
@@ -71,7 +80,7 @@ async fn start_listener(addr: &str) -> tokio::io::Result<()> {
 #[tokio::main]
 async fn main() -> tokio::io::Result<()> {
     // Create tasks for each listener on different ports
-    let ports = vec!["127.0.0.1:22", "127.0.0.1:80", "127.0.0.1:25"];
+    let ports = vec!["127.0.0.1:25", "127.0.0.1:23", "127.0.0.1:21"];
     
     let mut handles = vec![];
     
