@@ -19,4 +19,4 @@ dns = { enabled = false, port = 53 }
 sms = { enabled = false, port = 5000 }
 
 [chatgpt]
-api_key = ""
+api_key = "fake-key"
