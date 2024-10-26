@@ -1,7 +1,9 @@
+mod chatgpt;
+
 use tokio::net::TcpListener;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::task;
-
+use chatgpt::ChatGPT;
 async fn handle_client(mut stream: tokio::net::TcpStream, message: String) {
     let mut buffer = [0; 1024];
     

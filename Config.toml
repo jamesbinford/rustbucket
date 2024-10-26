@@ -1,0 +1,22 @@
+# Rustbucket Configuration
+[general]
+# The log level for the application
+log_level = "info"
+
+# Directory for storing logs
+log_directory = "./logs"
+
+# Whether to enable verbose logging
+verbose = false
+
+[ports]
+ssh = { enabled = true, port = 22 }
+http = { enabled = true, port = 80 }
+ftp = { enabled = false, port = 21 }
+sftp = { enabled = false, port = 115 }
+smtp = { enabled = false, port = 25 }
+dns = { enabled = false, port = 53 }
+sms = { enabled = false, port = 5000 }
+
+[chatgpt]
+api_key = "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"

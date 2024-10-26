@@ -38,7 +38,7 @@ pub struct ChatGPT {
 impl Config {
 	pub fn new() -> Self {
 		Figment::new()
-			.merge(Toml::file("config.toml"))
+			.merge(Toml::file("Config.toml"))
 			.extract()
 			.expect("Failed to load configuration")
 	}
