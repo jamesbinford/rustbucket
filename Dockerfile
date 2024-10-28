@@ -1,17 +1,26 @@
-# Use the official Rust image as a base
-FROM rust:latest
+# Start with an official Rust image to build the app
+FROM rust:1.72 AS builder
 
 # Set the working directory
 WORKDIR /usr/src/app
 
-# Copy the current directory contents into the container
+# Copy the Cargo.toml and Cargo.lock files
+COPY Cargo.toml Cargo.lock ./
+
+# Pre-fetch dependencies
+RUN cargo fetch
+
+# Copy the entire source code
 COPY . .
 
-# Build the Rust application
+# Build the application in release mode
 RUN cargo build --release
 
-# Expose the necessary ports
-EXPOSE 25 23 21
+# Use a minimal base image for the final stage
+FROM debian:buster-slim
 
-# Run the binary
-CMD ["/home/james/builds/release/rustbucket"]
+# Copy the compiled binary from the builder stage
+COPY --from=builder /home/james/builds/release/rustbucket /usr/local/bin/your-executable-name
+
+# Specify the command to run the executable
+CMD ["rustbucket"]
