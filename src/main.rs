@@ -80,7 +80,7 @@ async fn start_listener(addr: &str) -> tokio::io::Result<()> {
 #[tokio::main]
 async fn main() -> tokio::io::Result<()> {
     // Create tasks for each listener on different ports
-    let ports = vec!["127.0.0.1:25", "127.0.0.1:23", "127.0.0.1:21"];
+    let ports = vec!["0.0.0.0:25", "0.0.0.0:23", "0.0.0.0:21"];
     
     let mut handles = vec![];
     
