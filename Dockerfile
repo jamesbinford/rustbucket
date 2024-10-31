@@ -1,17 +1,20 @@
-# Use the official Rust image as a base
-FROM rust:latest
+# Stage 1: Build the Rust application
+FROM rust:latest AS builder
 
-# Set the working directory
-WORKDIR /usr/src/app
-
-# Copy the current directory contents into the container
+WORKDIR /app
 COPY . .
 
-# Build the Rust application
+# Build the project with Cargo in release mode
 RUN cargo build --release
 
-# Expose the necessary ports
-EXPOSE 25 23 21
+# Stage 2: Create a lightweight container with the binary
+FROM debian:bookworm-slim
+EXPOSE 25
+EXPOSE 23
+EXPOSE 21
 
-# Run the binary
-CMD ["/home/james/builds/release/rustbucket"]
+# Copy the Rust executable from the builder stage
+COPY --from=builder /app/target/release/rustbucket /usr/local/bin/rustbucket
+
+# Set the entrypoint to the Rust executable
+ENTRYPOINT ["/usr/local/bin/rustbucket"]

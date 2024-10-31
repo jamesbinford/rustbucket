@@ -3,6 +3,7 @@ mod chatgpt;
 use tokio::net::TcpListener;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::task;
+use log::{info, warn};
 use chatgpt::ChatGPT;
 async fn handle_client(mut stream: tokio::net::TcpStream, message: String) {
     let mut buffer = [0; 1024];
@@ -10,7 +11,7 @@ async fn handle_client(mut stream: tokio::net::TcpStream, message: String) {
     loop {
         match stream.read(&mut buffer).await {
             Ok(0) => {
-                // Connection closed
+                info!("Connection closed");
                 break;
             }
             Ok(n) => {
@@ -18,14 +19,17 @@ async fn handle_client(mut stream: tokio::net::TcpStream, message: String) {
                 // @TODO: Implement ChatGPT API
                 let received_data = String::from_utf8_lossy(&buffer[0..n]);
                 let response_message = format!("{}", message);
+                info!("Received data: {}", received_data);
+                info!("Response message: {}", response_message);
                 
                 if let Err(e) = stream.write_all(response_message.as_bytes()).await {
                     println!("Failed to send data: {}", e);
+                    info!("Failed to write data.");
                     break;
                 }
             }
             Err(e) => {
-                println!("Failed to read from stream: {}", e);
+                info!("Failed to read from stream: {}", e);
                 break;
             }
         }
@@ -80,7 +84,7 @@ async fn start_listener(addr: &str) -> tokio::io::Result<()> {
 #[tokio::main]
 async fn main() -> tokio::io::Result<()> {
     // Create tasks for each listener on different ports
-    let ports = vec!["127.0.0.1:25", "127.0.0.1:23", "127.0.0.1:21"];
+    let ports = vec!["0.0.0.0:25", "0.0.0.0:23", "0.0.0.0:21"];
     
     let mut handles = vec![];
     
