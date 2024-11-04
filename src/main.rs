@@ -3,15 +3,18 @@ mod chatgpt;
 use tokio::net::TcpListener;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::task;
-use log::{info, warn};
+use tracing::{info, error, debug};
+use tracing_subscriber::{fmt, EnvFilter};
+use tracing_appender::rolling;
 use chatgpt::ChatGPT;
+
 async fn handle_client(mut stream: tokio::net::TcpStream, message: String) {
     let mut buffer = [0; 1024];
     
     loop {
         match stream.read(&mut buffer).await {
             Ok(0) => {
-                info!("Connection closed");
+                tracing::info!("Connection closed");
                 break;
             }
             Ok(n) => {
@@ -19,17 +22,17 @@ async fn handle_client(mut stream: tokio::net::TcpStream, message: String) {
                 // @TODO: Implement ChatGPT API
                 let received_data = String::from_utf8_lossy(&buffer[0..n]);
                 let response_message = format!("{}", message);
-                info!("Received data: {}", received_data);
-                info!("Response message: {}", response_message);
+                tracing::info!("Received data: {}", received_data);
+                tracing::info!("Response message: {}", response_message);
                 
                 if let Err(e) = stream.write_all(response_message.as_bytes()).await {
                     println!("Failed to send data: {}", e);
-                    info!("Failed to write data.");
+                    tracing::info!("Failed to write data.");
                     break;
                 }
             }
             Err(e) => {
-                info!("Failed to read from stream: {}", e);
+                tracing::info!("Failed to read from stream: {}", e);
                 break;
             }
         }
@@ -52,20 +55,23 @@ async fn start_listener(addr: &str) -> tokio::io::Result<()> {
                     match listener_addr.port() {                        
                         25 => {
                             // Handle connection for port 25
-                            println!("Welcome to SMTP!");
+                            info!("Actor attempted to connect to port 25 - SMTP");
                             let message = "220 mail.example.com ESMTP Postfix (Ubuntu)".to_string();
+                            info!("Actor input message: {}", message);
                             handle_client(stream, message).await;
                         }
                         80 => {
-                            // Handle connection for port 23
-                            println!("Welcome to Telnet!");
+                            // Handle connection for port 80
+                            tracing::info!("Actor attempted to connect to port 80 - HTTP");
                             let message = "GET / HTTP/1.1\nHost: example.com".to_string();
+                            tracing::info!("Actor input message: {}", message);
                             handle_client(stream, message).await;
                         }
                         21 => {
                             // Handle connection for port 21
-                            println!("Welcome to FTP!");
+                            tracing::info!("Actor attempted to connect to port 21 - FTP");
                             let message = "220 (vsFTPd 3.0.3)".to_string();
+                            tracing::info!("Actor input message: {}", message);
                             handle_client(stream, message).await;
                         }
                         _ => {
@@ -83,6 +89,16 @@ async fn start_listener(addr: &str) -> tokio::io::Result<()> {
 
 #[tokio::main]
 async fn main() -> tokio::io::Result<()> {
+    // Set up rolling logs
+    let file_appender = rolling::daily("logs", "rustbucket.log");
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+    
+    // Initialize tracing subscriber
+    let subscriber = tracing_subscriber::fmt::Subscriber::builder()
+        .with_env_filter(EnvFilter::from_default_env())
+        .init();
+    tracing::info!("Tracing initialized");
+    
     // Create tasks for each listener on different ports
     let ports = vec!["0.0.0.0:25", "0.0.0.0:23", "0.0.0.0:21"];
     
@@ -100,5 +116,7 @@ async fn main() -> tokio::io::Result<()> {
         handle.await.unwrap();
     }
     
+    // Flush logs before shutdown
+    drop(_guard);
     Ok(())
 }
