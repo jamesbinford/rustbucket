@@ -14,7 +14,7 @@ async fn handle_client(mut stream: tokio::net::TcpStream, message: String) {
     loop {
         match stream.read(&mut buffer).await {
             Ok(0) => {
-                tracing::info!("Connection closed");
+                info!("Connection closed");
                 break;
             }
             Ok(n) => {
@@ -22,12 +22,12 @@ async fn handle_client(mut stream: tokio::net::TcpStream, message: String) {
                 // @TODO: Implement ChatGPT API
                 let received_data = String::from_utf8_lossy(&buffer[0..n]);
                 let response_message = format!("{}", message);
-                tracing::info!("Received data: {}", received_data);
-                tracing::info!("Response message: {}", response_message);
+                info!("Received data: {}", received_data);
+                info!("Response message: {}", response_message);
                 
                 if let Err(e) = stream.write_all(response_message.as_bytes()).await {
                     println!("Failed to send data: {}", e);
-                    tracing::info!("Failed to write data.");
+                    info!("Failed to write data.");
                     break;
                 }
             }
@@ -62,16 +62,16 @@ async fn start_listener(addr: &str) -> tokio::io::Result<()> {
                         }
                         80 => {
                             // Handle connection for port 80
-                            tracing::info!("Actor attempted to connect to port 80 - HTTP");
+                            info!("Actor attempted to connect to port 80 - HTTP");
                             let message = "GET / HTTP/1.1\nHost: example.com".to_string();
-                            tracing::info!("Actor input message: {}", message);
+                            info!("Actor input message: {}", message);
                             handle_client(stream, message).await;
                         }
                         21 => {
                             // Handle connection for port 21
-                            tracing::info!("Actor attempted to connect to port 21 - FTP");
+                            info!("Actor attempted to connect to port 21 - FTP");
                             let message = "220 (vsFTPd 3.0.3)".to_string();
-                            tracing::info!("Actor input message: {}", message);
+                            info!("Actor input message: {}", message);
                             handle_client(stream, message).await;
                         }
                         _ => {
@@ -95,12 +95,14 @@ async fn main() -> tokio::io::Result<()> {
     
     // Initialize tracing subscriber
     let subscriber = tracing_subscriber::fmt::Subscriber::builder()
-        .with_env_filter(EnvFilter::from_default_env())
+        .with_env_filter(EnvFilter::new("info"))
+        .with_writer(non_blocking)
+        .with_ansi(false)
         .init();
-    tracing::info!("Tracing initialized");
+    info!("Tracing initialized");
     
     // Create tasks for each listener on different ports
-    let ports = vec!["0.0.0.0:25", "0.0.0.0:23", "0.0.0.0:21"];
+    let ports = vec!["0.0.0.0:25", "0.0.0.0:23", "0.0.0.0:21", "0.0.0.0:80"];
     
     let mut handles = vec![];
     
