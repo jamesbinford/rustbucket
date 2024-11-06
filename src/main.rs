@@ -1,4 +1,6 @@
 mod chatgpt;
+mod config_test;
+mod config;
 
 use tokio::net::TcpListener;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
