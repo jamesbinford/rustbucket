@@ -1,7 +1,7 @@
 use crate::prelude::*;
-pub async fn handle_client(mut stream: tokio::net::TcpStream, message: String) {
+use crate::chatgpt::ChatGPT;
+pub async fn handle_client(mut stream: tokio::net::TcpStream, message: String, chatgpt: &ChatGPT) {
 	let mut buffer = [0; 1024];
-	
 	loop {
 		match stream.read(&mut buffer).await {
 			Ok(0) => {
@@ -12,7 +12,8 @@ pub async fn handle_client(mut stream: tokio::net::TcpStream, message: String) {
 				// Pass user input to ChatGPT, parse the GPT response and send it back to the user
 				// @TODO: Implement ChatGPT API
 				let received_data = String::from_utf8_lossy(&buffer[0..n]);
-				let response_message = format!("{}", message);
+				let response = chatgpt.send_message(&received_data).await.unwrap_or_else(|_| "Error processing request".to_string());
+				let response_message = format!("{}", response);
 				info!("Received data: {}", received_data);
 				info!("Response message: {}", response_message);
 				

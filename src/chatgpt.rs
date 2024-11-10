@@ -10,7 +10,7 @@ struct OpenAIConfig {
 	static_messages: StaticMessages,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 struct StaticMessages {
 	message1: String,
 	message2: String,
@@ -45,6 +45,7 @@ struct MessageResponse {
 	content: String,
 }
 
+#[derive(Debug, Clone)]
 pub struct ChatGPT {
 	api_key: String,
 	static_messages: StaticMessages,
@@ -52,13 +53,19 @@ pub struct ChatGPT {
 }
 
 impl ChatGPT {
-	pub fn new(config_file: &str) -> Result<ChatGPT, Box<dyn Error>> {
-		// Load configuration from config.toml
+	const CONFIG_FILE: &'static str = "Config.toml";
+	
+	pub fn new() -> Result<ChatGPT, Box<dyn Error>> {
+		Self::from_config(Self::CONFIG_FILE)
+	}
+	
+	pub fn from_config(config_file: &str) -> Result<ChatGPT, Box<dyn Error>> {
+		// Load configuration from the specified config file
 		let settings = Config::builder()
 			.add_source(File::with_name(config_file))
 			.build()?;
 		
-		let openai_config: OpenAIConfig = settings.try_deserialize()?;
+		let openai_config: OpenAIConfig = settings.get::<OpenAIConfig>("openai")?;
 		
 		Ok(ChatGPT {
 			api_key: openai_config.api_key,
