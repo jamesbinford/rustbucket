@@ -2,6 +2,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use config::{Config, File};
+use crate::prelude::*;
 
 // Struct for loading configuration
 #[derive(Debug, Deserialize)]
@@ -17,13 +18,13 @@ struct StaticMessages {
 	message3: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 struct ChatGPTRequest<'a> {
 	model: &'a str,
 	messages: Vec<Message<'a>>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 struct Message<'a> {
 	role: &'a str,
 	content: &'a str,
@@ -113,8 +114,19 @@ impl ChatGPT {
 			.send()
 			.await?;
 		
+		if !response.status().is_success() {
+			let error_text = response.text().await?;
+			error!("Error response from ChatGPT: {}", error_text);
+			return Err(Box::new(std::io::Error::new(
+				std::io::ErrorKind::Other,
+				"Failed to get a successful response from ChatGPT",
+			)));
+		}
+		
+		info!("We sent this to ChatGPT: {:?}", request_body);
 		let response_json: ChatGPTResponse = response.json().await?;
 		let reply = &response_json.choices[0].message.content;
+		info!("ChatGPT responded: {}", reply);
 		
 		Ok(reply.to_string())
 	}
