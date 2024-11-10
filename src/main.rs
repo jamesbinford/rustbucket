@@ -1,14 +1,14 @@
-mod chatgpt;
 mod config;
 mod handler;
 mod prelude;
+mod chatgpt;
 
 use crate::prelude::*;
 use tracing::{info, error, debug};
 use tracing_subscriber::{fmt, EnvFilter};
 use tracing_appender::rolling;
-use chatgpt::ChatGPT;
 use handler::handle_client;
+use chatgpt::ChatGPT;
 
 
 
@@ -17,6 +17,8 @@ async fn start_listener(addr: &str) -> tokio::io::Result<()> {
     // Retrieve the actual address and port the listener is bound to
     let listener_addr = listener.local_addr()?;
     println!("Listening on {}", listener_addr);
+    // Instantiate ChatGPT
+    let chatgpt = ChatGPT::new().unwrap();
     
     loop {
         match listener.accept().await {
@@ -24,6 +26,7 @@ async fn start_listener(addr: &str) -> tokio::io::Result<()> {
                 let port = client_addr.port();
                 println!("New connection on {}: {}", client_addr, client_addr);
                 // Spawn a new task to handle the connection asynchronously
+                let chatgpt = chatgpt.clone();
                 task::spawn(async move {
                     match listener_addr.port() {                        
                         25 => {
@@ -31,21 +34,21 @@ async fn start_listener(addr: &str) -> tokio::io::Result<()> {
                             info!("Actor attempted to connect to port 25 - SMTP");
                             let message = "220 mail.example.com ESMTP Postfix (Ubuntu)".to_string();
                             info!("Actor input message: {}", message);
-                            handle_client(stream, message).await;
+                            handle_client(stream, message, &chatgpt).await;
                         }
                         80 => {
                             // Handle connection for port 80
                             info!("Actor attempted to connect to port 80 - HTTP");
                             let message = "GET / HTTP/1.1\nHost: example.com".to_string();
                             info!("Actor input message: {}", message);
-                            handle_client(stream, message).await;
+                            handle_client(stream, message, &chatgpt).await;
                         }
                         21 => {
                             // Handle connection for port 21
                             info!("Actor attempted to connect to port 21 - FTP");
                             let message = "220 (vsFTPd 3.0.3)".to_string();
                             info!("Actor input message: {}", message);
-                            handle_client(stream, message).await;
+                            handle_client(stream, message, &chatgpt).await;
                         }
                         _ => {
                             println!("Unexpected port: {}", port);

@@ -18,5 +18,10 @@ smtp = { enabled = false, port = 25 }
 dns = { enabled = false, port = 53 }
 sms = { enabled = false, port = 5000 }
 
-[chatgpt]
-api_key = "fake-key"
+[openai]
+api_key = "fake-api-key"
+
+[openai.static_messages]
+message1 = "Welcome to the chat!"
+message2 = "How can I assist you today?"
+message3 = "Feel free to ask me anything."
