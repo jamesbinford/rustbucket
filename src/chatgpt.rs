@@ -92,10 +92,6 @@ impl ChatGPT {
 				content: &self.static_messages.message2,
 			},
 			Message {
-				role: "system",
-				content: &self.static_messages.message3,
-			},
-			Message {
 				role: "user",
 				content: user_message,
 			},
