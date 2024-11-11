@@ -19,9 +19,9 @@ dns = { enabled = false, port = 53 }
 sms = { enabled = false, port = 5000 }
 
 [openai]
-api_key = "fake-api-key"
+api_key = "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"
 
 [openai.static_messages]
-message1 = "Welcome to the chat!"
-message2 = "How can I assist you today?"
-message3 = "Feel free to ask me anything."
+message1 = "Hi ChatGPT! You're interacting with a honeypot. An unknown user has connected to the honeypot and is executing actions on it. The user is not aware that they are interacting with a honeypot. The goal is to gather information about the user's intentions and actions. The user is not aware that they are interacting with a honeypot. The goal is to gather information about the user's intentions and actions. I need you to act like an Ubuntu server and respond to the user's commands."
+message2 = "Please maintain the history of each command and do your best to respond as if you were an actual Ubuntu server."
+message3 = "The user has closed the session. Please save the history of the session and prepare for the next user."

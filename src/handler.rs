@@ -10,7 +10,6 @@ pub async fn handle_client(mut stream: tokio::net::TcpStream, message: String, c
 			}
 			Ok(n) => {
 				// Pass user input to ChatGPT, parse the GPT response and send it back to the user
-				// @TODO: Implement ChatGPT API
 				let received_data = String::from_utf8_lossy(&buffer[0..n]);
 				let response = chatgpt.send_message(&received_data).await.unwrap_or_else(|_| "Error processing request".to_string());
 				let response_message = format!("{}", response);
