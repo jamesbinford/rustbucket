@@ -4,19 +4,22 @@
 
 Rustbucket is a lightweight honeypot written in Rust that runs on virtual machines and containers exposed to the internet. By simulating common services on commonly attacked ports, Rustbucket captures and logs malicious activity for analysis.
 
+The fun sauce is that Rustbucket also has a built-in ChatGPT integration, allowing it to generate responses to attackers in real-time. This can be used to confuse attackers, gather more information, or simply have fun with them.
+
+Admittedly, ChatGPT can only pretend to be an Ubuntu server about 60% of the time. Nonetheless, it's a fun addition to the honeypot that can lead to some interesting interactions.
+
 ## Features
 
-- **Protocol Emulation**: Mimics popular services such as SSH and HTTP.
+- **Protocol Emulation**: Mimics popular services such as SMTP, HTTP, and FTP.
 - **Configurable Ports**: Easily configure which ports to monitor and the services to emulate through a TOML configuration file.
 - **Logging**: Captures all interactions, providing valuable insights into potential attacks.
 - **Concurrency**: Utilizes Rust’s async capabilities for handling multiple simultaneous connections efficiently.
-
-## Getting Started
 
 ### Prerequisites
 
 - Rust (1.50 or later)
 - Cargo (Rust’s package manager and build system)
+- ChatGPT API Key with usage quota (it doesn't use much!)
 
 ### Installation
 
@@ -24,3 +27,13 @@ Rustbucket is a lightweight honeypot written in Rust that runs on virtual machin
    ```bash
    git clone https://github.com/yourusername/rustbucket.git
    cd rustbucket
+    ```
+2. Update Config.toml with your ChatGPT API key. Feel free to customize the Prompt messages to make Rustbucket behave the way you want.
+3. Build the project:
+   ```bash
+   cargo build --release
+   ```
+4. Optionally, build it in a container:
+   ```bash
+   docker build -t rustbucket .
+   ```
