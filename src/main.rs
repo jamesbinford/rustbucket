@@ -32,6 +32,7 @@ async fn start_listener(addr: &str) -> tokio::io::Result<()> {
                         25 => {
                             // Handle connection for port 25
                             info!("Actor attempted to connect to port 25 - SMTP");
+                            //@todo: Implement a more realistic SMTP response and don't send this message to ChatGPT
                             let message = "220 mail.example.com ESMTP Postfix (Ubuntu)".to_string();
                             info!("Actor input message: {}", message);
                             handle_client(stream, message, &chatgpt).await;
@@ -39,6 +40,7 @@ async fn start_listener(addr: &str) -> tokio::io::Result<()> {
                         80 => {
                             // Handle connection for port 80
                             info!("Actor attempted to connect to port 80 - HTTP");
+                            //@todo: Implement a more realistic HTTP response and don't send this message to ChatGPT
                             let message = "GET / HTTP/1.1\nHost: example.com".to_string();
                             info!("Actor input message: {}", message);
                             handle_client(stream, message, &chatgpt).await;
@@ -46,11 +48,15 @@ async fn start_listener(addr: &str) -> tokio::io::Result<()> {
                         21 => {
                             // Handle connection for port 21
                             info!("Actor attempted to connect to port 21 - FTP");
+                            //@todo: Implement a more realistic FTP response and don't send this message to ChatGPT
                             let message = "220 (vsFTPd 3.0.3)".to_string();
                             info!("Actor input message: {}", message);
                             handle_client(stream, message, &chatgpt).await;
                         }
                         _ => {
+                            // We know our Security Groups are misconfigured if we hit this message.
+                            // Open Security Groups should map 1:1 with the ports in this match statement.
+                            error!("Actor connected to an unexpected port.");
                             println!("Unexpected port: {}", port);
                         }
                     }
