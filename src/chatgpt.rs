@@ -81,7 +81,11 @@ impl ChatGPT {
 	) -> Result<String, Box<dyn Error>> {
 		let url = "https://api.openai.com/v1/chat/completions";
 		
-		// Prepare the initial static messages
+		// We prompt ChatGPT with several messages before we deliver the user's
+		// input. Our goal is to make ChatGPT respond as if it were an Ubuntu
+		// server. ChatGPT does this well about 60% of the time so far.
+		// Since most "users" that connect to this rustbucket are bots
+		// this is an acceptable hit rate.
 		let mut messages = vec![
 			Message {
 				role: "system",
@@ -98,10 +102,11 @@ impl ChatGPT {
 		];
 		
 		let request_body = ChatGPTRequest {
-			model: "gpt-3.5-turbo",
+			model: "gpt-3.5-turbo", //@todo Move this to config.rs
 			messages,
 		};
 		
+		// Send our request to ChatGPT.
 		let response = self
 			.client
 			.post(url)
@@ -111,6 +116,8 @@ impl ChatGPT {
 			.await?;
 		
 		if !response.status().is_success() {
+			// If our ChatGPT request was not successful, log and return an error.
+			// Most likely issues: invalid API key, rate limiting, quota exceeded, etc.
 			let error_text = response.text().await?;
 			error!("Error response from ChatGPT: {}", error_text);
 			return Err(Box::new(std::io::Error::new(
@@ -118,7 +125,7 @@ impl ChatGPT {
 				"Failed to get a successful response from ChatGPT",
 			)));
 		}
-		
+		//@todo Change the format of the log message to be more parseable.
 		info!("We sent this to ChatGPT: {:?}", request_body);
 		let response_json: ChatGPTResponse = response.json().await?;
 		let reply = format!("{}\n", &response_json.choices[0].message.content);
