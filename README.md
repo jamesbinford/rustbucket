@@ -7,6 +7,7 @@ Rustbucket is a lightweight honeypot written in Rust that runs on virtual machin
 The fun sauce is that Rustbucket also has a built-in ChatGPT integration, allowing it to generate responses to attackers in real-time. This can be used to confuse attackers, gather more information, or simply have fun with them.
 
 Admittedly, ChatGPT can only pretend to be an Ubuntu server about 60% of the time. Nonetheless, it's a fun addition to the honeypot that can lead to some interesting interactions.
+You can also modify the prompts yourself in Config.toml to make ChatGPT behavior however you'd like!
 
 ## Features
 
