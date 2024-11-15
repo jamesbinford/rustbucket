@@ -63,7 +63,7 @@ impl ChatGPT {
 	pub fn from_config(config_file: &str) -> Result<ChatGPT, Box<dyn Error>> {
 		// Load configuration from the specified config file
 		let settings = Config::builder()
-			.add_source(File::with_name(config_file))
+			.add_source(File::with_name(Self::CONFIG_FILE))
 			.build()?;
 		
 		let openai_config: OpenAIConfig = settings.get::<OpenAIConfig>("openai")?;
@@ -121,7 +121,7 @@ impl ChatGPT {
 		
 		info!("We sent this to ChatGPT: {:?}", request_body);
 		let response_json: ChatGPTResponse = response.json().await?;
-		let reply = &response_json.choices[0].message.content;
+		let reply = format!("{}\n", &response_json.choices[0].message.content);
 		info!("ChatGPT responded: {}", reply);
 		
 		Ok(reply.to_string())
