@@ -15,7 +15,6 @@ struct OpenAIConfig {
 struct StaticMessages {
 	message1: String,
 	message2: String,
-	message3: String,
 }
 
 #[derive(Serialize, Debug)]
@@ -42,7 +41,6 @@ struct Choice {
 
 #[derive(Deserialize, Debug)]
 struct MessageResponse {
-	role: String,
 	content: String,
 }
 
@@ -86,7 +84,7 @@ impl ChatGPT {
 		// server. ChatGPT does this well about 60% of the time so far.
 		// Since most "users" that connect to this rustbucket are bots
 		// this is an acceptable hit rate.
-		let mut messages = vec![
+		let messages = vec![
 			Message {
 				role: "system",
 				content: &self.static_messages.message1,

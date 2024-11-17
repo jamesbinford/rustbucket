@@ -1,11 +1,10 @@
-mod config;
 mod handler;
 mod prelude;
 mod chatgpt;
 
 use crate::prelude::*;
-use tracing::{info, error, debug};
-use tracing_subscriber::{fmt, EnvFilter};
+use tracing::{info, error};
+use tracing_subscriber::EnvFilter;
 use tracing_appender::rolling;
 use handler::handle_client;
 use chatgpt::ChatGPT;
