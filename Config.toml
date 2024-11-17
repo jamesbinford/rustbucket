@@ -19,7 +19,7 @@ dns = { enabled = false, port = 53 }
 sms = { enabled = false, port = 5000 }
 
 [openai]
-api_key = "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"
+api_key = "fake-api-key"
 
 [openai.static_messages]
 message1 = "Hi ChatGPT! You are the backend for a honeypot. An unknown user has connected to the honeypot and is executing actions on it. The user is not aware that they are interacting with a honeypot. The goal is to gather information about the user's intentions and actions. I need you to act like an Ubuntu server and respond to the user's commands like a server would."
