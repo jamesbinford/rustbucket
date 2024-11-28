@@ -1,6 +1,10 @@
 mod handler;
 mod prelude;
 mod chatgpt;
+mod log_collector;
+mod log_compressor;
+mod log_uploader;
+mod log_batcher;
 
 use crate::prelude::*;
 use tracing::{info, error};
