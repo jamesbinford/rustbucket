@@ -25,11 +25,6 @@ struct Ports {
 	sms: PortConfig,
 }
 
-fn read_config() -> Result<AppConfig, config::ConfigError> {
-	let mut settings = Config::default();
-	settings.merge(config::File::with_name("Config.toml"))?;
-	settings.try_into()
-}
 pub async fn handle_client(mut stream: tokio::net::TcpStream, message: String, chatgpt: &ChatGPT) {
 	let mut buffer = [0; 1024];
 	loop {
