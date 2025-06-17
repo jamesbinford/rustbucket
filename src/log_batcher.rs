@@ -7,8 +7,8 @@ pub async fn start_batching_process() {
 	let settings = Config::builder().add_source(File::with_name("Config")).build().unwrap();
 	let interval_secs: u64 = settings.get("general.upload_interval_secs").unwrap();
 	let interval = Duration::from_secs(interval_secs);
-	let app_id = settings.get("aws.app_id").unwrap();
-	let s3_bucket = settings.get("aws.s3_bucket").unwrap();
+	let app_id: String = settings.get("aws.app_id").unwrap();
+	let s3_bucket: String = settings.get("aws.s3_bucket").unwrap();
 	
 	loop {
 		let log_file = "logs/batch.log";
@@ -18,13 +18,13 @@ pub async fn start_batching_process() {
 		log_collector::collect_log("This is a sample log", log_file);
 		
 		// Compress logs
-		compressor::compress_logs(log_file, compressed_file).unwrap();
+		log_compressor::compress_logs(log_file, compressed_file).unwrap();
 		
 		// Generate a unique filename
 		let s3_key = format!("{}/{}", app_id, "batch.gz");
 		
 		// Upload compressed file
-		if let Err(e) = uploader::upload_to_s3(compressed_file, s3_bucket, &s3_key).await {
+		if let Err(e) = log_uploader::upload_to_s3(compressed_file, &s3_bucket, &s3_key).await {
 			eprintln!("Failed to upload batch: {}", e);
 		}
 		
