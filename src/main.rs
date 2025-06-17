@@ -5,8 +5,10 @@ mod log_collector;
 mod log_compressor;
 mod log_uploader;
 mod log_batcher;
+mod utils;
 
 use crate::prelude::*;
+pub use utils::{generate_random_project_name, generate_random_token};
 use tracing::{info, error};
 use tracing_subscriber::EnvFilter;
 use tracing_appender::rolling;
