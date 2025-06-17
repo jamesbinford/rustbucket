@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::error::Error;
 use config::{Config, File};
 use crate::prelude::*;
+use crate::handler::ChatService; // Import the new trait
 
 // Struct for loading configuration
 #[derive(Debug, Deserialize)]
@@ -58,7 +59,7 @@ impl ChatGPT {
 		Self::from_config(Self::CONFIG_FILE)
 	}
 	
-	pub fn from_config(config_file: &str) -> Result<ChatGPT, Box<dyn Error>> {
+	pub fn from_config(_config_file: &str) -> Result<ChatGPT, Box<dyn Error>> {
 		// Load configuration from the specified config file
 		let settings = Config::builder()
 			.add_source(File::with_name(Self::CONFIG_FILE))
@@ -131,4 +132,15 @@ impl ChatGPT {
 		
 		Ok(reply.to_string())
 	}
+}
+
+#[async_trait::async_trait]
+impl ChatService for ChatGPT {
+    async fn send_message(&self, message: &str) -> Result<String, String> {
+        // Call the inherent send_message method
+        match ChatGPT::send_message(self, message).await {
+            Ok(response) => Ok(response),
+            Err(e) => Err(e.to_string()),
+        }
+    }
 }
