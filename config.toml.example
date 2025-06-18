@@ -20,3 +20,6 @@ sms = { enabled = false, port = 5000 }
 
 [chatgpt]
 api_key = "chatgpt-api-key"
+
+[registration]
+rustbucket_registry_url = "http://localhost:8080/register"
