@@ -24,35 +24,37 @@ Rustbucket simulates multiple network protocols to attract and capture malicious
 - **Common Attacks**: Anonymous login attempts, brute force, directory listing
 
 ### 4. SSH (Port 22)
-**Configuration**: Enabled by default
-- **Purpose**: Secure shell simulation for credential attacks
-- **Implementation**: Currently handled generically (no specific banner)
-- **Common Attacks**: Brute force, key scanning, privilege escalation
+**Configuration**: Designed and documented in `Config.toml` examples, but **not currently implemented** in `main.rs` active listeners.
+- **Purpose**: Secure shell simulation for credential attacks.
+- **Implementation if Active**: Would likely be generic AI handling unless a specific banner is added.
+- **Common Attacks**: Brute force, key scanning, privilege escalation.
 
 ### 5. Telnet (Port 23)
-**Implementation**: Generic handling without specific protocol response
-- **Purpose**: Legacy remote access simulation
-- **Common Attacks**: Credential brute force, IoT device targeting
+**Initial Response**: No specific banner. Connection directly handled by `handle_client` for generic AI interaction.
+- **Implementation**: Generic AI handling via `handle_client` and `ChatService`.
+- **Purpose**: Legacy remote access simulation.
+- **Common Attacks**: Credential brute force, IoT device targeting.
 
 ### 6. DNS (Port 53)
-**Configuration**: Disabled by default
-- **Purpose**: Domain name service simulation
-- **Implementation**: Configurable but not actively implemented
-- **Potential Attacks**: DNS amplification, cache poisoning
+**Configuration**: Designed and documented in `Config.toml` examples, but **not currently implemented** in `main.rs` active listeners.
+- **Purpose**: Domain name service simulation.
+- **Implementation if Active**: Would require specific DNS protocol handling; generic AI is not suitable.
+- **Potential Attacks**: DNS amplification, cache poisoning.
 
-### 7. SMS (Port 5000)
-**Configuration**: Disabled by default
-- **Purpose**: Custom service simulation
-- **Implementation**: Configurable custom port
-- **Use Case**: Application-specific attack simulation
+### 7. SMS (Port 5000 - Example Custom Port)
+**Configuration**: Designed as an example custom port in `Config.toml`, but **not currently implemented** in `main.rs` active listeners.
+- **Purpose**: Custom service simulation.
+- **Implementation if Active**: Would be generic AI handling unless specific logic is added.
+- **Use Case**: Application-specific attack simulation.
 
 ## Protocol Implementation Strategy
 
-### Current Approach
-1. **Static Banners**: Each protocol sends a realistic initial response
-2. **AI Handoff**: All subsequent interaction handled by ChatGPT
-3. **Context Switching**: Port number determines initial protocol context
-4. **Generic Processing**: Same handler function for all protocols
+### Current Approach (as seen in `src/main.rs` and `src/handler.rs`)
+1.  **Initial Interaction (for specific ports)**:
+    *   For ports 21 (FTP), 25 (SMTP), and 80 (HTTP), `main.rs` sends a predefined static banner message to the client. This initial banner is also passed (somewhat redundantly) as `_initial_message` to `handle_client`.
+    *   For port 23 (Telnet) and any other configured-but-generic ports, no initial banner is sent by `main.rs` before handing off to `handle_client`.
+2.  **AI Handoff**: All subsequent interaction for all active ports is managed by `handle_client`, which uses the `ChatService` trait (implemented by `src/chatgpt.rs`) to get responses. The `_initial_message` argument in `handle_client` is currently not used within its loop for subsequent interactions.
+3.  **Generic Processing**: The same `handle_client` function, utilizing the `ChatService` abstraction, is used for all protocols after their optional initial static banner. The AI's behavior is primarily guided by the static system prompts configured in `Config.toml` for the `ChatGPT` service.
 
 ### Protocol Realism Levels
 
