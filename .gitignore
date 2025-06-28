@@ -9,6 +9,7 @@
 
 # Cargo.lock (if you want to ignore it, generally it's better to commit it)
 # Cargo.lock
+config.toml
 
 # IDE files
 .idea/
