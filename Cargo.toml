@@ -11,22 +11,22 @@ exclude = [
 ]
 
 [dependencies]
-tokio = { version = "1.41.0", features = ["full"] }
+tokio = { version = "1.45.1", features = ["full"] } # Updated to address RUSTSEC-2025-0023 (yanked) and get latest fixes
 serde = { version = "1.0.214", features = ["derive"] }
-toml = "0.8.19"
-figment = { version = "0.10.19", features = ["toml"] }
-reqwest = { version = "0.12.9", features = ["json"] }
-config = "0.14.1"
+toml = "0.8.19" # Will be updated by `cargo update` if a newer compatible version resolves transitive issues
+figment = { version = "0.10.19", features = ["toml"] } # Will be updated by `cargo update`
+reqwest = { version = "0.12.9", features = ["json"] } # Will be updated by `cargo update`
+config = "0.14.1" # Will be updated by `cargo update`
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
-tracing-appender = "0.2.3"
+tracing-appender = "0.2.3" # Reverted, will attempt to update crossbeam-channel directly
 flate2 = "1.1.2"
-aws-sdk-s3 = "1.92.0"
-aws-smithy-types = "1.3.2"
-aws-config = "1.8.0"
-aws-smithy-runtime-api = "1.8.1"
+aws-sdk-s3 = "1.92.0" # Will be updated by `cargo update`
+aws-smithy-types = "1.3.2" # Will be updated by `cargo update`
+aws-config = "1.8.0" # Will be updated by `cargo update`
+aws-smithy-runtime-api = "1.8.1" # Will be updated by `cargo update`
 async-trait = "0.1.88"
 rand = "0.8"
 
 [dev-dependencies]
-tokio-test = "0.4.4"
+tokio-test = "0.4.4" # Will be updated by `cargo update` if necessary
