@@ -1,204 +1,137 @@
 # Logging System Design
 
 ## Overview
-Rustbucket implements a comprehensive logging system for capturing, processing, and storing honeypot interaction data. The system handles both real-time operational logging and attack data collection for analysis.
+Rustbucket uses the `tracing` crate for logging application events and interactions. Logs are written to daily rolling files locally. The previously designed comprehensive log processing pipeline (including batching, compression, and S3 upload) is not currently implemented.
 
 ## Logging Architecture
 
-### Two-Tier Logging System
+### Application Logging (Tracing-based)
+The core logging mechanism relies on the `tracing` ecosystem:
+- `tracing`: Provides the framework for instrumenting the application and emitting structured log events.
+- `tracing_subscriber`: Used to configure how traces are collected and filtered (e.g., log level via `EnvFilter`).
+- `tracing_appender`: Handles the actual writing of logs, specifically `rolling::daily` is used to create new log files each day.
 
-#### 1. Application Logging (Tracing-based)
 ```rust
-// Operational logs using tracing crate
-info!("Actor attempted to connect to port 25 - SMTP");
-error!("Actor connected to an unexpected port");
+// Example of operational logs using tracing crate in main.rs and handler.rs
+use tracing::{info, error};
+
+info!("Tracing initialized");
+info!("Actor attempted to connect to port {} - {}", port_type, service_name);
+error!("Actor connected to an unexpected port.");
 info!("Received data: {}", received_data);
 info!("Response message: {}", response_message);
+error!("Failed to send data: {}", e);
 ```
 
-#### 2. Attack Data Collection (File-based)
-```rust
-// Manual log collection for batch processing
-log_collector::collect_log("This is a sample log", log_file);
-```
+(The "Attack Data Collection (File-based)" system with `log_collector.rs` is not present in the current implementation.)
 
 ## Log Processing Pipeline
+The current system does not feature an automated multi-stage log processing pipeline (collection, batching, compression, upload) as previously envisioned.
 
-### 1. Collection Phase (`log_collector.rs`)
-```rust
-pub fn collect_log(log_message: &str, log_file: &str) {
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(log_file)
-        .unwrap();
-    
-    writeln!(file, "{}", log_message).unwrap();
-}
-```
-- **Function**: Append structured log entries to files
-- **Format**: Plain text, one entry per line
-- **File Handling**: Auto-create files, append-only mode
-- **Error Handling**: Panic on file operation failures
+**Current Process:**
+1.  **Event Emission**: Code instrumented with `tracing` macros (`info!`, `error!`, etc.) generates log events.
+2.  **Filtering**: `tracing_subscriber::EnvFilter` (configured typically by the `RUST_LOG` environment variable or a default like "info" in `main.rs`) filters events based on their level and target.
+3.  **Writing to File**: `tracing_appender::rolling::daily` writes the filtered log events to files in the specified directory (e.g., `./logs`). A new file is created daily (e.g., `rustbucket.log.YYYY-MM-DD`).
+4.  **Output Format**: Logs are typically written in a human-readable text format, including timestamp, level, target, and the message. ANSI color codes are disabled for file logging.
 
-### 2. Batching Phase (`log_batcher.rs`)
-```rust
-pub async fn start_batching_process() {
-    loop {
-        // Collect logs
-        log_collector::collect_log("sample", "logs/batch.log");
-        
-        // Compress
-        log_compressor::compress_logs("logs/batch.log", "logs/batch.gz");
-        
-        // Upload
-        log_uploader::upload_to_s3("logs/batch.gz", bucket, &s3_key).await;
-        
-        // Wait for next interval
-        sleep(interval).await;
-    }
-}
-```
-- **Scheduling**: Configurable interval (default: 1 hour)
-- **Coordination**: Orchestrates collect → compress → upload pipeline
-- **Configuration**: Reads AWS settings and timing from Config.toml
-- **Error Handling**: Logs upload failures, continues processing
-
-### 3. Compression Phase (`log_compressor.rs`)
-```rust
-pub fn compress_logs(input_file: &str, output_file: &str) -> io::Result<()> {
-    let input = File::open(input_file)?;
-    let mut encoder = GzEncoder::new(File::create(output_file)?, Compression::default());
-    io::copy(&mut input.take(10_000_000), &mut encoder)?;
-    encoder.finish()?;
-}
-```
-- **Algorithm**: Gzip compression (flate2 crate)
-- **Size Limit**: 10MB maximum input file size
-- **Compression Level**: Default compression ratio
-- **Output**: Creates `.gz` files for upload
-
-### 4. Upload Phase (`log_uploader.rs`)
-```rust
-pub async fn upload_to_s3(file_path: &str, bucket: &str, key: &str) -> Result<(), Error> {
-    let shared_config = aws_config::load_from_env().await;
-    let client = Client::new(&shared_config);
-    
-    let body = ByteStream::from_path(Path::new(file_path)).await?;
-    
-    client.put_object()
-        .bucket(bucket)
-        .key(key)
-        .body(body)
-        .send()
-        .await?;
-}
-```
-- **Destination**: AWS S3 storage
-- **Authentication**: Environment-based AWS credentials
-- **Key Generation**: `{app_id}/batch.gz` format
-- **Error Handling**: Returns detailed AWS SDK errors
+(The sections for Collection Phase, Batching Phase, Compression Phase, and Upload Phase with their respective `.rs` files are removed as they don't reflect the current state.)
 
 ## Log Configuration
 
-### Tracing Configuration
+### Tracing Configuration (as in `main.rs`)
 ```rust
-// Daily rolling logs
-let file_appender = rolling::daily("logs", "rustbucket.log");
+// Set up rolling logs
+let file_appender = rolling::daily("logs", "rustbucket.log"); // Creates files like logs/rustbucket.log.YYYY-MM-DD
 let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
-let subscriber = tracing_subscriber::fmt::Subscriber::builder()
-    .with_env_filter(EnvFilter::new("info"))
-    .with_writer(non_blocking)
-    .with_ansi(false)
+// Initialize tracing subscriber
+tracing_subscriber::fmt() // Use fmt() for easier configuration
+    .with_env_filter(EnvFilter::new(
+        std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string()), // Allow RUST_LOG override, default to "info"
+    ))
+    .with_writer(non_blocking) // Write to the non-blocking daily rolling file appender
+    .with_ansi(false) // Disable ANSI color codes for file logging
     .init();
+info!("Tracing initialized, logging to daily files in 'logs' directory.");
 ```
 
 ### Config.toml Settings
+The `Config.toml` file influences logging primarily through:
 ```toml
 [general]
-log_level = "info"
-log_directory = "./logs"
-upload_interval_secs = 3600
-
-[aws]
-app_id = "unique-identifier"
-s3_bucket = "log-storage-bucket"
+log_level = "info" # This can serve as a default if RUST_LOG env var is not set.
+log_directory = "./logs" # Confirms the directory used by tracing_appender.
+# upload_interval_secs, [aws] section are not currently used for logging.
 ```
+The actual log level filtering is managed by `EnvFilter` which typically defaults to the `RUST_LOG` environment variable or the level specified in `main.rs` if `RUST_LOG` is not set. The `log_directory` from `Config.toml` is implicitly used by the `rolling::daily` setup in `main.rs`.
 
 ## Log Data Structure
 
-### Application Logs
+### Application Logs (Example from `logs/rustbucket.log.YYYY-MM-DD`)
+The format is determined by `tracing_subscriber::fmt` defaults when writing to a file (usually plain text, without ANSI colors).
 ```
-2024-01-01T12:00:00Z INFO Actor attempted to connect to port 25 - SMTP
-2024-01-01T12:00:01Z INFO Received data: HELO attacker.com
-2024-01-01T12:00:02Z INFO Response message: 250 Hello
-2024-01-01T12:00:03Z INFO ChatGPT responded: 250 Hello
+YYYY-MM-DDTHH:MM:SS.MSZ INFO rustbucket::main: Tracing initialized
+YYYY-MM-DDTHH:MM:SS.MSZ INFO rustbucket::main: Listening on 0.0.0.0:25
+YYYY-MM-DDTHH:MM:SS.MSZ INFO rustbucket::main: New connection on 127.0.0.1:XXXXX: 127.0.0.1:XXXXX
+YYYY-MM-DDTHH:MM:SS.MSZ INFO rustbucket::main: Actor attempted to connect to port 25 - SMTP
+YYYY-MM-DDTHH:MM:SS.MSZ INFO rustbucket::main: Actor input message: 220 mail.example.com ESMTP Postfix (Ubuntu)
+YYYY-MM-DDTHH:MM:SS.MSZ INFO rustbucket::handler: Received data: HELO client.example.com
+YYYY-MM-DDTHH:MM:SS.MSZ INFO rustbucket::chatgpt: We sent this to ChatGPT: ChatGPTRequest { model: "gpt-3.5-turbo", messages: [Message { role: "system", content: "..." }, Message { role: "system", content: "..." }, Message { role: "user", content: "HELO client.example.com" }] }
+YYYY-MM-DDTHH:MM:SS.MSZ INFO rustbucket::chatgpt: ChatGPT responded: 250 Ok\n
+YYYY-MM-DDTHH:MM:SS.MSZ INFO rustbucket::handler: Response message: 250 Ok
 ```
-
-### Attack Data Logs
-```
-Connection: 192.168.1.100:54321 -> 0.0.0.0:25
-Timestamp: 2024-01-01T12:00:00Z
-Input: HELO attacker.com
-Response: 250 Hello
-Duration: 30s
-```
+(The "Attack Data Logs" as a separate structured format are not explicitly generated; all data is part of the main application log.)
 
 ## Storage Strategy
 
 ### Local Storage
-- **Directory**: `./logs/` (configurable)
-- **Rotation**: Daily files via tracing-appender
-- **Retention**: Manual cleanup required
-- **Format**: Human-readable text files
+- **Directory**: `./logs/` (as configured in `main.rs` for `rolling::daily`). This can be influenced by `Config.toml`'s `general.log_directory` if the code is adapted to read it for this purpose, but `main.rs` currently hardcodes "logs".
+- **Rotation**: Daily rolling files (e.g., `rustbucket.log.YYYY-MM-DD`). `tracing_appender` handles the creation of new files.
+- **Retention**: Manual cleanup is required for old log files. There is no automatic retention policy in place.
+- **Format**: Human-readable plain text.
 
 ### Remote Storage
-- **Platform**: AWS S3
-- **Structure**: `{app_id}/{timestamp}/batch.gz`
-- **Compression**: Gzip for reduced storage costs
-- **Access**: Programmatic via AWS SDK
+- Remote storage (e.g., AWS S3) is **not currently implemented**. The design for batching, compressing, and uploading logs is a future consideration.
 
 ## Performance Considerations
 
 ### Async Processing
-- **Non-blocking I/O**: Tracing uses async file writers
-- **Background Tasks**: Log processing doesn't block connections
-- **Batch Processing**: Reduces individual upload overhead
+- **Non-blocking I/O**: `tracing_appender::non_blocking` is used, which means log writing operations are performed on a separate thread, minimizing the impact on the main application threads.
 
 ### Resource Usage
-- **Memory**: Bounded by compression buffer (10MB limit)
-- **Disk**: Rolling logs prevent unbounded growth
-- **Network**: Compressed uploads reduce bandwidth usage
-- **CPU**: Gzip compression adds processing overhead
+- **Disk**: Log files will accumulate daily. The amount of disk space used will depend on log volume and frequency of manual cleanup. Rolling logs prevent a single file from growing indefinitely.
+- **CPU**: `tracing` itself is designed to be efficient. The primary CPU overhead related to logging would be from formatting messages and I/O operations, mitigated by the non-blocking appender.
+- (Considerations for memory/network/CPU for compression and upload are not applicable to the current implementation.)
 
 ## Security Considerations
 
 ### Data Sensitivity
-- **Attack Data**: May contain sensitive information from attackers
-- **PII Handling**: No built-in PII scrubbing or anonymization
-- **Access Control**: S3 bucket permissions control access
-- **Retention**: No automatic expiration policies
+- **Attack Data**: Logs will contain all data sent by connecting clients (potential attackers), which could include malicious payloads, reconnaissance attempts, or sensitive information if attackers input it.
+- **PII Handling**: No built-in PII scrubbing or anonymization. Raw interaction data is logged.
+- **Local Access**: File system permissions on the server where Rustbucket is running will determine who can access the local log files.
 
 ### Operational Security
-- **API Keys**: AWS credentials via environment variables
-- **Log Integrity**: No tamper protection or signing
-- **Transport Security**: HTTPS for S3 uploads
-- **Local Access**: File system permissions protect local logs
+- **Log Integrity**: No built-in tamper protection or signing for log files.
+- (Considerations for API keys, transport security for S3 are not applicable currently.)
 
 ## Future Enhancements
+(This section can largely remain, but it's important to frame these as enhancements to the *current, simpler* logging system.)
 
 ### Structured Logging
-- **JSON Format**: Machine-readable log entries
-- **Schema Definition**: Consistent field naming and types
-- **Metadata Enrichment**: GeoIP, threat intel integration
+- **JSON Format**: Configure `tracing_subscriber::fmt()` to output logs in JSON for easier machine parsing and ingestion into log analysis platforms.
+- **Schema Definition**: If using JSON, maintain a consistent field naming convention.
+- **Metadata Enrichment**: Could potentially add more contextual information to logs (e.g., GeoIP for source IPs, though this would require additional dependencies and logic).
 
-### Real-time Processing
-- **Stream Processing**: Real-time analysis instead of batch
-- **Alerting**: Immediate notification of high-value attacks
-- **Analytics**: Real-time dashboards and metrics
+### Log Management & Remote Storage (Reintroducing previous concepts as future work)
+- **Batch Processing**: Periodically process log files for archival or remote storage.
+- **Compression**: Compress log files before archival/upload to save space.
+- **Remote Upload**: Implement functionality to upload logs to a remote store like AWS S3, Azure Blob Storage, etc. This would require handling credentials and network operations securely.
+
+### Real-time Processing & Alerting (If remote streaming is implemented)
+- **Stream Processing**: If logs are streamed to a capable backend, real-time analysis could be performed.
+- **Alerting**: Set up alerts for specific patterns or critical errors observed in the logs.
 
 ### Enhanced Storage
-- **Database Integration**: Structured storage for querying
-- **Retention Policies**: Automatic cleanup based on age/size
-- **Backup Strategy**: Redundant storage across regions
+- **Database Integration**: For more advanced querying capabilities, logs could be sent to a database (e.g., Elasticsearch).
+- **Retention Policies**: Implement automatic cleanup or archival of old logs based on age or size.
+- **Backup Strategy**: If critical data is logged, ensure backups of the log storage.

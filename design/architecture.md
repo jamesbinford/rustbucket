@@ -5,13 +5,10 @@
 ```
 src/
 ├── main.rs           # Entry point, listener management
-├── handler.rs        # Connection handling logic
-├── chatgpt.rs        # OpenAI API integration
+├── handler.rs        # Connection handling logic (uses ChatService trait)
+├── chatgpt.rs        # OpenAI API integration (implements ChatService trait)
 ├── prelude.rs        # Common imports and utilities
-├── log_collector.rs  # Log collection utilities
-├── log_batcher.rs    # Batch processing coordination
-├── log_compressor.rs # Log compression functionality
-└── log_uploader.rs   # S3 upload capabilities
+└── registration.rs   # Instance registration with a central registry
 ```
 
 ## Component Interactions
@@ -19,83 +16,102 @@ src/
 ### 1. Main Application Flow
 ```
 main.rs
-  ├── Initialize tracing/logging
-  ├── Spawn listeners for each configured port
-  │   ├── Port 21 (FTP): "220 (vsFTPd 3.0.3)"
-  │   ├── Port 23 (Telnet): Generic handling
-  │   ├── Port 25 (SMTP): "220 mail.example.com ESMTP Postfix"
-  │   └── Port 80 (HTTP): "GET / HTTP/1.1\nHost: example.com"
+  ├── Initialize tracing/logging (daily rolling files)
+  ├── Spawn listeners for hardcoded ports:
+  │   ├── Port 21 (FTP): Static banner "220 (vsFTPd 3.0.3)" then AI
+  │   ├── Port 23 (Telnet): Generic AI handling
+  │   ├── Port 25 (SMTP): Static banner "220 mail.example.com ESMTP Postfix" then AI
+  │   └── Port 80 (HTTP): Static banner "GET / HTTP/1.1\nHost: example.com" then AI
   └── Wait for all listeners indefinitely
+  (Note: Instance registration via registration.rs is available but not currently called from main.rs)
 ```
 
 ### 2. Connection Handling Flow
 ```
 handle_client() in handler.rs
+  ├── Accepts a generic stream and a type implementing ChatService trait
   ├── Read data from TCP stream
-  ├── Send user input to ChatGPT API
-  ├── Receive AI-generated response
+  ├── Send user input via ChatService's send_message method
+  ├── Receive AI-generated response (or error string)
   ├── Write response back to client
   ├── Log all interactions
   └── Repeat until connection closes
 ```
 
-### 3. ChatGPT Integration
+### 3. ChatGPT Integration (`chatgpt.rs` and `handler.rs`)
 ```
-ChatGPT struct
-  ├── Load configuration from Config.toml
+ChatService Trait (in handler.rs)
+  └── Defines `async fn send_message(&self, message: &str) -> Result<String, String>`
+
+ChatGPT struct (in chatgpt.rs, implements ChatService)
+  ├── Load configuration from Config.toml ([openai] section)
   ├── Initialize HTTP client for API calls
   ├── Maintain static prompt messages
   └── send_message() method:
       ├── Prepare system prompts
       ├── Add user input
       ├── Make API call to OpenAI
-      └── Return formatted response
+      └── Return formatted response or error string
 ```
 
-### 4. Log Management Pipeline
+### 4. Log Management
 ```
-Log Management System
-  ├── log_collector.rs: Append logs to files
-  ├── log_batcher.rs: Coordinate batch processing
-  │   ├── Collect logs at intervals
-  │   ├── Call compression
-  │   └── Trigger upload
-  ├── log_compressor.rs: Gzip compression
-  └── log_uploader.rs: AWS S3 upload
+Log Management System (Simplified)
+  ├── Uses `tracing` crate for structured logging.
+  ├── `tracing_appender::rolling::daily` for creating new log files daily in `./logs` directory.
+  ├── Example log file: `logs/rustbucket.log.YYYY-MM-DD`.
+  └── (The previously designed batching, compression, and S3 upload capabilities are not currently implemented.)
+```
+
+### 5. Instance Registration Flow (`registration.rs`)
+```
+registration.rs
+  ├── Function `register_instance()` (currently not called by main.rs)
+  ├── Loads `rustbucket_registry_url` from `[registration]` section in Config.toml.
+  ├── Generates a unique instance name (e.g., "rustbucket-xxxx") and a random token.
+  ├── Sends a POST request to the configured registry URL with name and token.
+  └── Logs success or failure of the registration attempt.
 ```
 
 ## Configuration Architecture
 
 ### Config.toml Structure
 ```toml
-[general]
-log_level = "info"
-log_directory = "./logs"
-upload_interval_secs = 3600
+# Example structure based on current code usage and design needs:
 
-[ports]
-ssh = { enabled = true, port = 22 }
-http = { enabled = true, port = 80 }
-# ... other ports
+[general]
+log_level = "info"  # Used by tracing EnvFilter in main.rs
+log_directory = "./logs" # Default directory for rolling logs
+
+# [ports] section defines structures in handler.rs but is not currently used
+# by main.rs to dynamically configure listeners. Ports are hardcoded.
+# Example of what it *could* look like if implemented:
+# [ports]
+# ssh = { enabled = true, port = 22 }
+# http = { enabled = true, port = 80 }
+# ftp = { enabled = true, port = 21 }
+# smtp = { enabled = true, port = 25 }
+# telnet = { enabled = true, port = 23 }
 
 [openai]
-api_key = "your-key-here"
+api_key = "your-openai-api-key" # Loaded by chatgpt.rs
+# Static messages for OpenAI prompts
 [openai.static_messages]
-message1 = "System prompt 1"
-message2 = "System prompt 2"
+message1 = "Hi ChatGPT! You are the backend for a honeypot..."
+message2 = "Please maintain the history of each command..."
 
-[aws]
-app_id = "unique-app-identifier"
-s3_bucket = "log-storage-bucket"
+[registration]
+rustbucket_registry_url = "http://your-registry-url.example.com/register" # Loaded by registration.rs
 ```
+*(Note: The `[aws]` section for S3 log uploads has been removed as this functionality is not currently implemented.)*
 
 ## Async Architecture
 
 ### Concurrency Model
-- **Main Thread**: Spawns multiple port listeners
-- **Per-Port Tasks**: Each port runs in separate Tokio task
-- **Per-Connection Tasks**: Each client connection spawns new task
-- **Background Tasks**: Log processing runs independently
+- **Main Thread**: Spawns multiple port listeners for hardcoded ports (21, 23, 25, 80).
+- **Per-Port Tasks**: Each port listener runs in its own separate Tokio task.
+- **Per-Connection Tasks**: Each accepted client connection spawns a new Tokio task for `handle_client`.
+- **Background Tasks**: Instance registration (`registration.rs`), if called, would run as an async task. (Currently, logging is synchronous within the tasks or handled by `tracing_appender`'s non-blocking writer).
 
 ### Resource Management
 - **Memory**: Minimal per-connection state

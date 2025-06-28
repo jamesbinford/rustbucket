@@ -5,53 +5,95 @@ Rustbucket integrates with OpenAI's ChatGPT API to generate realistic server res
 
 ## Integration Architecture
 
-### ChatGPT Struct Design
+The primary integration point for AI-driven responses is the `ChatService` trait, defined in `src/handler.rs`. This trait decouples the connection handler from a specific ChatGPT implementation.
+
+### `ChatService` Trait (`src/handler.rs`)
+```rust
+#[async_trait::async_trait]
+pub trait ChatService {
+    async fn send_message(&self, message: &str) -> Result<String, String>;
+}
+```
+- This trait defines a contract for any service that can take a user message (string) and asynchronously return a response (string) or an error (string).
+- The `handle_client` function in `src/handler.rs` is generic over this trait, allowing different chat services to be plugged in.
+
+### `ChatGPT` Struct Design (`src/chatgpt.rs`)
+The `ChatGPT` struct is the concrete implementation of the `ChatService` trait using the OpenAI API.
 ```rust
 #[derive(Debug, Clone)]
 pub struct ChatGPT {
     api_key: String,
-    static_messages: StaticMessages,
-    client: Client,
+    static_messages: StaticMessages, // Holds system prompts from config
+    client: Client, // reqwest HTTP client
 }
 ```
-- **API Key**: Stored from configuration file
-- **Static Messages**: Pre-configured system prompts
-- **HTTP Client**: Reusable reqwest client for API calls
-- **Clone**: Allows sharing across async tasks
+- **API Key**: Stored from the configuration file (`Config.toml`).
+- **Static Messages**: Pre-configured system prompts loaded from `Config.toml`.
+- **HTTP Client**: Reusable `reqwest::Client` for making API calls to OpenAI.
+- **Clone**: Allows instances of `ChatGPT` to be shared across async tasks (e.g., per connection).
+
+It implements the `ChatService` trait:
+```rust
+#[async_trait::async_trait]
+impl ChatService for ChatGPT {
+    async fn send_message(&self, message: &str) -> Result<String, String> {
+        // Calls its own inherent method `ChatGPT::send_message(self, message)`
+        // and maps the Result<String, Box<dyn Error>> to Result<String, String>.
+        match self::send_message(self, message).await { // Note: `self::send_message` refers to the struct's own method
+            Ok(response) => Ok(response),
+            Err(e) => Err(e.to_string()),
+        }
+    }
+}
+```
 
 ## Configuration System
 
 ### Config.toml Structure
+The `ChatGPT` struct requires the following section in `Config.toml`:
 ```toml
 [openai]
-api_key = "your-openai-api-key"
+api_key = "your-openai-api-key" # Your actual OpenAI API key
 
 [openai.static_messages]
-message1 = "Hi ChatGPT! You are the backend for a honeypot..."
-message2 = "Please maintain the history of each command..."
-message3 = "The user has closed the session..."
+# These messages are used to set the context for ChatGPT.
+message1 = "Hi ChatGPT! You are the backend for a honeypot. An unknown user has connected to the honeypot and is executing actions on it. The user is not aware that they are interacting with a honeypot. The goal is to gather information about the user's intentions and actions. I need you to act like an Ubuntu server and respond to the user's commands like a server would."
+message2 = "Please maintain the history of each command and always respond as if you were an actual Ubuntu server. Don't respond using full sentences, or the user will know it's you! If the user inputs an invalid command or text, please respond with 'Invalid Command'."
+# message3 is currently not used by src/chatgpt.rs but was in the original design.
+# It can be kept for future use or removed if deemed unnecessary.
+# message3 = "The user has closed the session..."
 ```
+*(Note: The `src/chatgpt.rs` code currently only loads `message1` and `message2` from `StaticMessages` struct. The design document previously listed `message3` which is not used in the current implementation of `chatgpt.rs`.)*
 
-### Configuration Loading
+### Configuration Loading (`src/chatgpt.rs`)
+The `ChatGPT::from_config` method loads this configuration:
 ```rust
-pub fn from_config(config_file: &str) -> Result<ChatGPT, Box<dyn Error>> {
+// Simplified from src/chatgpt.rs
+pub fn from_config(config_file_path: &str) -> Result<ChatGPT, Box<dyn Error>> {
     let settings = Config::builder()
-        .add_source(File::with_name("Config.toml"))
+        .add_source(File::with_name(config_file_path)) // Typically "Config.toml"
         .build()?;
     
+    // Deserializes into internal structs OpenAIConfig and StaticMessages
     let openai_config: OpenAIConfig = settings.get::<OpenAIConfig>("openai")?;
-    // Initialize ChatGPT struct
+
+    Ok(ChatGPT {
+        api_key: openai_config.api_key,
+        static_messages: openai_config.static_messages,
+        client: Client::new(),
+    })
 }
 ```
 
 ## API Interaction Flow
 
-### Request Structure
+### Request Structure (`src/chatgpt.rs`)
+The request to OpenAI API is structured as follows:
 ```rust
 #[derive(Serialize, Debug)]
 struct ChatGPTRequest<'a> {
-    model: &'a str,           // "gpt-3.5-turbo"
-    messages: Vec<Message<'a>>,
+    model: &'a str,           // Currently hardcoded to "gpt-3.5-turbo" in src/chatgpt.rs
+    messages: Vec<Message<'a>>, // A vector of system and user messages
 }
 
 #[derive(Serialize, Debug)]
