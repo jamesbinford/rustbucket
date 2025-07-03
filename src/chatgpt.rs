@@ -8,7 +8,7 @@ use crate::handler::ChatService; // Import the new trait
 // Struct for loading configuration
 #[derive(Debug, Deserialize)]
 struct OpenAIConfig {
-	api_key: String,
+	api_key: Option<String>,
 	static_messages: StaticMessages,
 }
 
@@ -61,15 +61,38 @@ impl ChatGPT {
 	
 	pub fn from_config(_config_file: &str) -> Result<ChatGPT, Box<dyn Error>> {
 		// Load configuration from the specified config file
+		// Load configuration from the specified config file
 		let settings = Config::builder()
-			.add_source(File::with_name(Self::CONFIG_FILE))
+			.add_source(File::with_name(Self::CONFIG_FILE)) // Config file is required
 			.build()?;
-		
-		let openai_config: OpenAIConfig = settings.get::<OpenAIConfig>("openai")?;
+
+		let openai_config_from_file: Option<OpenAIConfig> = settings.get("chatgpt").ok(); // Changed "openai" to "chatgpt"
+
+		let api_key = match std::env::var("CHATGPT_API_KEY") {
+			Ok(key_from_env) => Ok(key_from_env),
+			Err(_) => {
+				match openai_config_from_file.as_ref().and_then(|conf| conf.api_key.clone()) {
+					Some(key_from_file) => Ok(key_from_file),
+					None => Err(Box::new(std::io::Error::new(
+						std::io::ErrorKind::NotFound,
+						"ChatGPT API key not found in environment variable CHATGPT_API_KEY or config file",
+					))),
+				}
+			}
+		}?;
+
+		let static_messages = openai_config_from_file
+			.map(|conf| conf.static_messages)
+			.ok_or_else(|| {
+				Box::new(std::io::Error::new(
+					std::io::ErrorKind::NotFound,
+					"Static messages not found in config file",
+				))
+			})?;
 		
 		Ok(ChatGPT {
-			api_key: openai_config.api_key,
-			static_messages: openai_config.static_messages,
+			api_key,
+			static_messages,
 			client: Client::new(),
 		})
 	}

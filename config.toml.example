@@ -19,7 +19,12 @@ dns = { enabled = false, port = 53 }
 sms = { enabled = false, port = 5000 }
 
 [chatgpt]
-api_key = "chatgpt-api-key"
+# The API key for ChatGPT.
+# This is optional if the CHATGPT_API_KEY environment variable is set.
+# api_key = "your-chatgpt-api-key"
+#
+# Static messages are required for ChatGPT interaction.
+static_messages = { message1 = "You are an Ubuntu Server.", message2 = "Respond as an Ubuntu server would. Do not break character." }
 
 [registration]
 rustbucket_registry_url = "http://localhost:8080/register"
