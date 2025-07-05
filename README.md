@@ -29,7 +29,7 @@ You can also modify the prompts yourself in Config.toml to make ChatGPT behavior
    git clone https://github.com/yourusername/rustbucket.git
    cd rustbucket
     ```
-2. Update Config.toml with your ChatGPT API key. Feel free to customize the Prompt messages to make Rustbucket behave the way you want.
+2. Update Config.toml as needed. Feel free to customize the Prompt messages to make Rustbucket behave the way you want.
 3. Build the project:
    ```bash
    cargo build --release
@@ -38,3 +38,4 @@ You can also modify the prompts yourself in Config.toml to make ChatGPT behavior
    ```bash
    docker build -t rustbucket .
    ```
+5. Make sure your OpenAI API key is set in a CHATGPT_API_KEY environment variable.

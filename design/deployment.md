@@ -10,7 +10,7 @@ Rustbucket is designed for deployment in internet-exposed environments to captur
 # Direct server deployment
 git clone https://github.com/jamesbinford/rustbucket.git
 cd rustbucket
-cp config.toml.example Config.toml
+cp Config.toml Config.toml
 # Edit Config.toml with API keys (OpenAI) and optionally the registration URL.
 # Ensure Config.toml is in the same directory as the executable or provide path.
 cargo build --release

@@ -8,7 +8,6 @@ use crate::handler::ChatService; // Import the new trait
 // Struct for loading configuration
 #[derive(Debug, Deserialize)]
 struct OpenAIConfig {
-	api_key: Option<String>,
 	static_messages: StaticMessages,
 }
 
@@ -66,22 +65,15 @@ impl ChatGPT {
 			.add_source(File::with_name(Self::CONFIG_FILE)) // Config file is required
 			.build()?;
 
-		let openai_config_from_file: Option<OpenAIConfig> = settings.get("chatgpt").ok(); // Changed "openai" to "chatgpt"
+		let llm_config_from_file: Option<OpenAIConfig> = settings.get("llm").ok();
 
-		let api_key = match std::env::var("CHATGPT_API_KEY") {
-			Ok(key_from_env) => Ok(key_from_env),
-			Err(_) => {
-				match openai_config_from_file.as_ref().and_then(|conf| conf.api_key.clone()) {
-					Some(key_from_file) => Ok(key_from_file),
-					None => Err(Box::new(std::io::Error::new(
-						std::io::ErrorKind::NotFound,
-						"ChatGPT API key not found in environment variable CHATGPT_API_KEY or config file",
-					))),
-				}
-			}
-		}?;
+		let api_key = std::env::var("CHATGPT_API_KEY")
+			.map_err(|_| Box::new(std::io::Error::new(
+				std::io::ErrorKind::NotFound,
+				"ChatGPT API key not found in environment variable CHATGPT_API_KEY",
+			)))?;
 
-		let static_messages = openai_config_from_file
+		let static_messages = llm_config_from_file
 			.map(|conf| conf.static_messages)
 			.ok_or_else(|| {
 				Box::new(std::io::Error::new(

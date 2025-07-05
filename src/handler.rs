@@ -1,35 +1,10 @@
 use crate::prelude::*;
-use serde::Deserialize;
-// Removed: use crate::chatgpt::ChatGPT;
-// Tokio I/O traits
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 // Define the ChatService trait
 #[async_trait::async_trait]
 pub trait ChatService {
     async fn send_message(&self, message: &str) -> Result<String, String>;
-}
-
-#[derive(Debug, Deserialize)]
-struct PortConfig {
-	enabled: bool,
-	port: u16,
-}
-
-#[derive(Debug, Deserialize)]
-struct AppConfig {
-	ports: Ports,
-}
-
-#[derive(Debug, Deserialize)]
-struct Ports {
-	ssh: PortConfig,
-	http: PortConfig,
-	ftp: PortConfig,
-	sftp: PortConfig,
-	smtp: PortConfig,
-	dns: PortConfig,
-	sms: PortConfig,
 }
 
 // Updated handle_client function
