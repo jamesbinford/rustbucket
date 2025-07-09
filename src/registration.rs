@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize}; // For JSON serialization
 use reqwest; // For HTTP requests
 use tracing::{info, error, warn}; // For logging
 use config; // For configuration management
+use std::fs::File; // For file operations
+use std::io::Write; // For file operations
 // We'll need a way to read the configuration.
 // Assuming a similar setup to other parts of the project, this might involve a custom config struct
 // or using the `config` crate directly. For now, let's add a placeholder for config loading.
@@ -12,6 +14,7 @@ use config; // For configuration management
 // use rand::{distributions::Alphanumeric, Rng}; // No longer needed for placeholder
 
 const DEFAULT_REGISTRY_URL: &str = "http://localhost:8080/register"; // Fallback if config fails
+const TOKEN_FILE_PATH: &str = "token.txt";
 
 #[derive(Debug, Deserialize)]
 struct RegistrationConfig {
@@ -26,6 +29,11 @@ struct AppConfig { // A struct to represent the top-level config structure
 #[derive(Serialize)]
 struct RegistrationPayload<'a> {
     message: &'a str,
+}
+
+#[derive(Deserialize, Debug)]
+struct RegistrationResponse {
+    token: String,
 }
 
 // Placeholder for the main public function
@@ -64,23 +72,49 @@ pub async fn register_instance() {
     match client.post(&registry_url).json(&payload).send().await {
         Ok(response) => {
             let status = response.status();
-            let response_text = response.text().await.unwrap_or_else(|_| "Failed to read response body".to_string()); // Get response body for logging if needed
-
-            match status {
-                reqwest::StatusCode::OK => { // HTTP 200
-                    info!("Successfully sent registration data. Server response: {}", response_text);
+            if status == reqwest::StatusCode::OK { // HTTP 200
+                match response.json::<RegistrationResponse>().await {
+                    Ok(reg_response) => {
+                        info!("Successfully received registration response with token.");
+                        match File::create(TOKEN_FILE_PATH) {
+                            Ok(mut file) => {
+                                match file.write_all(reg_response.token.as_bytes()) {
+                                    Ok(_) => {
+                                        info!("Successfully wrote token to {}", TOKEN_FILE_PATH);
+                                    }
+                                    Err(e) => {
+                                        error!("Failed to write token to {}: {}", TOKEN_FILE_PATH, e);
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                error!("Failed to create token file {}: {}", TOKEN_FILE_PATH, e);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!("Failed to parse registration response JSON: {}. Full response text might provide clues.", e);
+                        // Optionally, log the full response text if parsing fails, but be careful with sensitive data.
+                        // let response_text = response.text().await.unwrap_or_else(|_| "Failed to read response body".to_string());
+                        // error!("Full response text: {}", response_text);
+                    }
                 }
-                reqwest::StatusCode::NOT_FOUND => { // HTTP 404
-                    error!("Registration failed: Bad URL (404 Not Found) for {}. Server response: {}", registry_url, response_text);
-                }
-                reqwest::StatusCode::INTERNAL_SERVER_ERROR => { // HTTP 500
-                    error!("Registration failed: Server error (500 Internal Server Error) at {}. Server response: {}", registry_url, response_text);
-                }
-                _ => {
-                    warn!(
-                        "Registration attempt to {} returned unexpected status: {}. Server response: {}",
-                        registry_url, status, response_text
-                    );
+            } else {
+                // Handle non-200 responses
+                let response_text = response.text().await.unwrap_or_else(|_| "Failed to read response body".to_string());
+                match status {
+                    reqwest::StatusCode::NOT_FOUND => { // HTTP 404
+                        error!("Registration failed: Bad URL (404 Not Found) for {}. Server response: {}", registry_url, response_text);
+                    }
+                    reqwest::StatusCode::INTERNAL_SERVER_ERROR => { // HTTP 500
+                        error!("Registration failed: Server error (500 Internal Server Error) at {}. Server response: {}", registry_url, response_text);
+                    }
+                    _ => {
+                        warn!(
+                            "Registration attempt to {} returned unexpected status: {}. Server response: {}",
+                            registry_url, status, response_text
+                        );
+                    }
                 }
             }
         }
@@ -113,35 +147,76 @@ mod tests {
 
     // Removed tests for generate_name and generate_token as they are no longer used.
 
+    // Helper function to clean up token.txt
+    fn cleanup_token_file() {
+        if std::path::Path::new(TOKEN_FILE_PATH).exists() {
+            std::fs::remove_file(TOKEN_FILE_PATH).expect("Failed to remove token.txt during cleanup");
+        }
+    }
+
     #[tokio::test]
-    async fn test_register_instance_runs() {
-        // This is a very basic test to ensure the function can be called
-        // and completes without panicking, assuming default or no config.
-        // More comprehensive testing would require mocking HTTP requests and config.
-        // For now, we rely on the default URL if config is missing.
-        // Note: This test might make an actual HTTP call if not carefully managed
-        // or if the default URL is reachable. For true unit testing,
-        // this would need a mock HTTP server or reqwest mocking.
-        // Given the constraints, we'll accept this basic check.
+    async fn test_register_instance_runs_without_config_and_no_server() {
+        // This test ensures the function runs without panicking when Config.toml is absent
+        // and the default registry URL is likely unavailable.
+        cleanup_token_file(); // Ensure no leftover token file
 
-        // To prevent actual HTTP calls during tests, we can shadow the function
-        // or use a feature flag, but for now, let's ensure it just runs.
-        // We'll add a specific test config file that points to a non-existent local port
-        // to ensure network calls fail fast and predictably if they happen.
+        // Ensure no Config.toml exists for this test
+        if std::path::Path::new("Config.toml").exists() {
+            std::fs::remove_file("Config.toml").expect("Failed to remove pre-existing Config.toml for test");
+        }
 
-        // Create a dummy Config.toml for this test
-        let test_config_content = r#"
+        register_instance().await; // Should log errors but not panic
+
+        // No specific assert on token.txt as server call is expected to fail.
+        // Test passes if it doesn't panic and logs appropriately.
+        cleanup_token_file(); // Clean up just in case, though not expected
+    }
+
+    #[tokio::test]
+    async fn test_register_instance_success_writes_token() {
+        // Attempt to initialize tracing for test output. Ignore error if already initialized.
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
+        // This test requires a mock HTTP server.
+        // We'll use `mockito` for this. Add `mockito = "0.31"` to Cargo.toml [dev-dependencies]
+        // For now, this test will be structured to use mockito.
+        // If direct http mocking isn't immediately feasible, this shows the intent.
+
+        cleanup_token_file();
+
+        let mut server = mockito::Server::new_async().await;
+        let mock_url = server.url();
+
+        // Create a dummy Config.toml for this test to use the mock server
+        let test_config_content = format!(
+            r#"
 [registration]
-rustbucket_registry_url = "http://localhost:12345/test_register"
-"#;
+rustbucket_registry_url = "{}/test_register"
+"#,
+            mock_url
+        );
         std::fs::write("Config.toml", test_config_content).expect("Failed to write test Config.toml");
+
+        let mock_token = "test_token_12345";
+        let response_body = serde_json::json!({ "token": mock_token }).to_string();
+
+        let _m = server.mock("POST", "/test_register")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(&response_body)
+            .create_async()
+            .await;
 
         register_instance().await;
 
-        // Clean up the dummy Config.toml
-        std::fs::remove_file("Config.toml").expect("Failed to remove test Config.toml");
+        // Check if token.txt was created and contains the correct token
+        assert!(std::path::Path::new(TOKEN_FILE_PATH).exists(), "token.txt was not created");
+        let token_content = std::fs::read_to_string(TOKEN_FILE_PATH).expect("Failed to read token.txt");
+        assert_eq!(token_content, mock_token, "token.txt does not contain the correct token");
 
-        // No explicit assert, test passes if it doesn't panic.
-        // Log messages can be inspected if test output is captured.
+        // Clean up
+        cleanup_token_file();
+        std::fs::remove_file("Config.toml").expect("Failed to remove test Config.toml");
+        // Mock server is cleaned up when `server` goes out of scope.
     }
 }

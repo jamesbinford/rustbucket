@@ -142,7 +142,23 @@ mod tests {
     // Helper function to remove a dummy file after testing
     fn remove_dummy_file(path: &Path) {
         if path.exists() {
-            fs::remove_file(path).expect("Failed to remove dummy file");
+        match fs::remove_file(path) {
+            Ok(_) => {} // Successfully removed
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                // File was found by exists() but not by remove_file().
+                // This is strange, but for the purpose of "ensure it's gone", it's fine.
+                // Log a warning instead of panicking.
+                warn!(
+                    "Attempted to remove file {} which was reported as existing, but remove_file returned NotFound: {}",
+                    path.display(),
+                    e
+                );
+            }
+            Err(e) => {
+                // Other error (permissions, it's a directory, etc.)
+                panic!("Failed to remove dummy file {}: {}", path.display(), e);
+            }
+        }
         }
     }
 
