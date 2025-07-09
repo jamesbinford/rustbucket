@@ -71,10 +71,7 @@ async fn start_listener(addr: &str) -> tokio::io::Result<()> {
 }
 
 fn check_token_exists() -> bool {
-    // Assuming Cargo.lock is in the current working directory's parent if running from target/debug or target/release
-    // Or in the current working directory if running with `cargo run`
-    let cargo_lock_path = Path::new("Cargo.lock");
-    let token_path = cargo_lock_path.with_file_name("token.txt");
+    let token_path = Path::new("token.txt");
 
     if !token_path.exists() {
         warn!("token.txt not found at {}", token_path.display());
