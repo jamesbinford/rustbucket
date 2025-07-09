@@ -9,8 +9,7 @@ use config; // For configuration management
 // or using the `config` crate directly. For now, let's add a placeholder for config loading.
 // use crate::config::AppConfig; // Placeholder - actual config loading might differ
 
-// Placeholder for random string generation, will need `rand` crate
-use rand::{distributions::Alphanumeric, Rng};
+// use rand::{distributions::Alphanumeric, Rng}; // No longer needed for placeholder
 
 const DEFAULT_REGISTRY_URL: &str = "http://localhost:8080/register"; // Fallback if config fails
 
@@ -26,8 +25,7 @@ struct AppConfig { // A struct to represent the top-level config structure
 
 #[derive(Serialize)]
 struct RegistrationPayload<'a> {
-    name: &'a str,
-    token: &'a str,
+    message: &'a str,
 }
 
 // Placeholder for the main public function
@@ -54,19 +52,12 @@ pub async fn register_instance() {
         }
     };
 
-    // 2. Generate name and token
-    let name = generate_name();
-    let token = generate_token();
-
-    info!("Generated name: {}, token: {}", name, token); // Token logged for debugging, consider removing in prod
-
-    // 3. Create payload
+    // 2. Create payload
     let payload = RegistrationPayload {
-        name: &name,
-        token: &token,
+        message: "Instance registration placeholder",
     };
 
-    // 4. Make HTTP POST request
+    // 3. Make HTTP POST request
     let client = reqwest::Client::new();
     info!("Posting registration data to URL: {}", registry_url);
 
@@ -77,7 +68,7 @@ pub async fn register_instance() {
 
             match status {
                 reqwest::StatusCode::OK => { // HTTP 200
-                    info!("Successfully registered instance with name: {}. Server response: {}", name, response_text);
+                    info!("Successfully sent registration data. Server response: {}", response_text);
                 }
                 reqwest::StatusCode::NOT_FOUND => { // HTTP 404
                     error!("Registration failed: Bad URL (404 Not Found) for {}. Server response: {}", registry_url, response_text);
@@ -99,39 +90,28 @@ pub async fn register_instance() {
     }
 }
 
-fn generate_name() -> String {
-    let random_suffix: String = rand::thread_rng()
-        .sample_iter(&Alphanumeric)
-        .take(8) // Generate an 8-character random suffix
-        .map(char::from)
-        .collect();
-    format!("rustbucket-{}", random_suffix)
-}
+// fn generate_name() -> String {
+//     let random_suffix: String = rand::thread_rng()
+//         .sample_iter(&Alphanumeric)
+//         .take(8) // Generate an 8-character random suffix
+//         .map(char::from)
+//         .collect();
+//     format!("rustbucket-{}", random_suffix)
+// }
 
-fn generate_token() -> String {
-    rand::thread_rng()
-        .sample_iter(&Alphanumeric)
-        .take(32) // Generate a 32-character random token
-        .map(char::from)
-        .collect()
-}
+// fn generate_token() -> String {
+//     rand::thread_rng()
+//         .sample_iter(&Alphanumeric)
+//         .take(32) // Generate a 32-character random token
+//         .map(char::from)
+//         .collect()
+// }
 
 #[cfg(test)]
 mod tests {
-    use super::*; // Imports generate_name, generate_token
+    use super::*;
 
-    #[test]
-    fn test_generate_name_format_and_length() {
-        let name = generate_name();
-        assert!(name.starts_with("rustbucket-"), "Name should start with 'rustbucket-'");
-        assert_eq!(name.len(), "rustbucket-".len() + 8, "Name should be 'rustbucket-' + 8 random chars");
-    }
-
-    #[test]
-    fn test_generate_token_length() {
-        let token = generate_token();
-        assert_eq!(token.len(), 32, "Token should be 32 characters long");
-    }
+    // Removed tests for generate_name and generate_token as they are no longer used.
 
     #[tokio::test]
     async fn test_register_instance_runs() {
