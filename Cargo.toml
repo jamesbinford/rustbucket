@@ -30,5 +30,6 @@ rand = "0.8"
 
 [dev-dependencies]
 tokio-test = "0.4.4" # Will be updated by `cargo update` if necessary
-mockito = "1.4.0" # For mocking HTTP requests in tests
-serde_json = "1.0" # For creating JSON payloads in tests
+mockito = "1.5.0" # For mocking HTTP requests in tests
+tempfile = "3.8.0" # For creating temporary config files in tests
+serde_json = "1.0" # For JSON serialization tests

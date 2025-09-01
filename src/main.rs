@@ -105,6 +105,9 @@ async fn main() -> tokio::io::Result<()> {
         // std::process::exit(1);
     }
     
+    // Register this instance
+    registration::register_instance().await;
+    
     // Create tasks for each listener on different ports
     let ports = vec!["0.0.0.0:25", "0.0.0.0:23", "0.0.0.0:21", "0.0.0.0:80"];
     
