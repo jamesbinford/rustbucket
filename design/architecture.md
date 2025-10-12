@@ -17,13 +17,14 @@ src/
 ```
 main.rs
   ├── Initialize tracing/logging (daily rolling files)
+  ├── Check for token.txt existence (warns if missing)
+  ├── Call registration::register_instance() to register with central registry
   ├── Spawn listeners for hardcoded ports:
   │   ├── Port 21 (FTP): Static banner "220 (vsFTPd 3.0.3)" then AI
   │   ├── Port 23 (Telnet): Generic AI handling
-  │   ├── Port 25 (SMTP): Static banner "220 mail.example.com ESMTP Postfix" then AI
+  │   ├── Port 25 (SMTP): Static banner "220 mail.example.com ESMTP Postfix (Ubuntu)" then AI
   │   └── Port 80 (HTTP): Static banner "GET / HTTP/1.1\nHost: example.com" then AI
   └── Wait for all listeners indefinitely
-  (Note: Instance registration via registration.rs is available but not currently called from main.rs)
 ```
 
 ### 2. Connection Handling Flow
@@ -66,11 +67,11 @@ Log Management System (Simplified)
 ### 5. Instance Registration Flow (`registration.rs`)
 ```
 registration.rs
-  ├── Function `register_instance()` (currently not called by main.rs)
-  ├── Loads `rustbucket_registry_url` from `[registration]` section in Config.toml.
-  ├── Generates a unique instance name (e.g., "rustbucket-xxxx") and a random token.
-  ├── Sends a POST request to the configured registry URL with name and token.
-  └── Logs success or failure of the registration attempt.
+  ├── Function `register_instance()` (called by main.rs during startup)
+  ├── Loads `rustbucket_registry_url` from `[registration]` section in Config.toml
+  ├── Generates a unique instance name ("rustbucket-{8 alphanumeric chars}") and 32-char token
+  ├── Sends a POST request to the configured registry URL with JSON payload {"name": ..., "token": ...}
+  └── Logs success or failure of registration attempt (no token files written)
 ```
 
 ## Configuration Architecture
@@ -108,10 +109,10 @@ rustbucket_registry_url = "http://your-registry-url.example.com/register" # Load
 ## Async Architecture
 
 ### Concurrency Model
-- **Main Thread**: Spawns multiple port listeners for hardcoded ports (21, 23, 25, 80).
-- **Per-Port Tasks**: Each port listener runs in its own separate Tokio task.
-- **Per-Connection Tasks**: Each accepted client connection spawns a new Tokio task for `handle_client`.
-- **Background Tasks**: Instance registration (`registration.rs`), if called, would run as an async task. (Currently, logging is synchronous within the tasks or handled by `tracing_appender`'s non-blocking writer).
+- **Main Thread**: Calls registration, then spawns multiple port listeners for hardcoded ports (21, 23, 25, 80)
+- **Per-Port Tasks**: Each port listener runs in its own separate Tokio task
+- **Per-Connection Tasks**: Each accepted client connection spawns a new Tokio task for `handle_client`
+- **Background Tasks**: Instance registration runs during startup before listeners start
 
 ### Resource Management
 - **Memory**: Minimal per-connection state

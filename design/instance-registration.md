@@ -4,7 +4,7 @@
 
 Rustbucket includes a feature to allow individual honeypot instances to register themselves with a central registry server. This can be useful for tracking deployed instances, gathering basic metadata, or coordinating distributed honeypots.
 
-The registration is performed by the `registration.rs` module. The main public function is `register_instance()`, which is an asynchronous function. Currently, this function is implemented but not automatically called from the main application flow in `src/main.rs`. It would need to be explicitly invoked if registration is desired.
+The registration is performed by the `registration.rs` module. The main public function is `register_instance()`, which is an asynchronous function. This function is called automatically during startup from `src/main.rs` before the port listeners begin accepting connections.
 
 ## 2. Configuration
 

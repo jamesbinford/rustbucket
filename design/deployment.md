@@ -10,11 +10,12 @@ Rustbucket is designed for deployment in internet-exposed environments to captur
 # Direct server deployment
 git clone https://github.com/jamesbinford/rustbucket.git
 cd rustbucket
-cp Config.toml Config.toml
-# Edit Config.toml with API keys (OpenAI) and optionally the registration URL.
-# Ensure Config.toml is in the same directory as the executable or provide path.
+cp Config.toml.example Config.toml  # Assuming example config exists
+# Edit Config.toml with static messages and registration URL (if needed)
+# Set OpenAI API key as environment variable for security
+export CHATGPT_API_KEY="sk-your-openai-api-key"
 cargo build --release
-# sudo is needed if binding to privileged ports (<1024) like 21, 22, 25, 80.
+# sudo is needed if binding to privileged ports (<1024) like 21, 23, 25, 80
 sudo ./target/release/rustbucket
 ```
 
@@ -26,10 +27,11 @@ sudo ./target/release/rustbucket
 **Requirements**:
 - Linux server with public IP.
 - Root privileges if binding to low port numbers (e.g., 21, 23, 25, 80 are currently active).
-- OpenAI API key and credits.
-- (Optional) URL for instance registration if that feature is to be used.
-- `Config.toml` file correctly configured and accessible by the application.
-- (AWS credentials for log upload are NOT currently required as S3 upload is not implemented).
+- OpenAI API key set as CHATGPT_API_KEY environment variable
+- OpenAI API credits
+- (Optional) URL for instance registration if that feature is to be used
+- `Config.toml` file with [llm.static_messages] section configured
+- (AWS credentials for log upload are NOT currently required as S3 upload is not implemented)
 
 ### 2. Container Deployment
 The existing Dockerfile in the repository (`rustbucket/Dockerfile`) should be used.
@@ -89,9 +91,9 @@ docker run -d \
   -p 21:21 -p 23:23 -p 25:25 -p 80:80 \
   -v /path/to/your/Config.toml:/usr/src/rustbucket/Config.toml \ # Adjust path
   -v /path/to/your/logs:/usr/src/rustbucket/logs \ # Adjust path
-  # Pass OpenAI API key via environment if preferred over Config.toml for this deployment
-  # -e OPENAI_API_KEY="sk-..."
-  # -e RUST_LOG="info"
+  # Pass ChatGPT API key via environment (required)
+  -e CHATGPT_API_KEY="sk-..."
+  -e RUST_LOG="info"
   rustbucket:latest # Assuming image is tagged this way
 ```
 *(Note: Removed AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY from this example as S3 upload is not current. Adjusted ports to reflect active listeners: 21, 23, 25, 80.)*
@@ -127,10 +129,10 @@ spec:
         - containerPort: 80
           name: http
         env:
-        - name: OPENAI_API_KEY
+        - name: CHATGPT_API_KEY
           valueFrom:
             secretKeyRef:
-              name: openai-api-key-secret # Kubernetes secret
+              name: chatgpt-api-key-secret # Kubernetes secret
               key: apikey
         - name: RUST_LOG
           value: "info"
@@ -183,7 +185,7 @@ az container create \
   --image youracr.azurecr.io/rustbucket:latest \ # Replace with your image path
   --ports 21 23 25 80 \
   --dns-name-label rustbucket-honeypot \ # Makes it publicly accessible
-  --environment-variables OPENAI_API_KEY=$OPENAI_API_KEY RUST_LOG=info \
+  --environment-variables CHATGPT_API_KEY=$CHATGPT_API_KEY RUST_LOG=info \
   # For Config.toml, consider building it into the image if simple,
   # or use Azure File Share for mounting:
   # --azure-file-volume-account-name <storage_account_name>
@@ -253,17 +255,25 @@ resource "aws_security_group" "rustbucket" {
 
 ## Configuration Management
 
-### `Config.toml` File
-This is the primary method of configuration.
+### Configuration Files and Environment Variables
+Configuration is split between files and environment variables for security:
+
+#### Environment Variables (Required)
+```bash
+# OpenAI API key (required)
+export CHATGPT_API_KEY="sk-your-openai-api-key"
+# Optional: Log level control
+export RUST_LOG="info"
+```
+
+#### Config.toml File
 ```toml
-# Example Config.toml content to be deployed with the application
+# Example Config.toml content (without secrets)
 [general]
 # log_level is primarily controlled by RUST_LOG env var or main.rs default
 # log_directory is hardcoded to "logs" in main.rs for rolling files
 
-[openai]
-api_key = "sk-your-openai-api-key" # Replace with actual key
-[openai.static_messages]
+[llm.static_messages]
 message1 = "Hi ChatGPT! You are the backend for a honeypot..."
 message2 = "Please maintain the history of each command..."
 
@@ -274,7 +284,7 @@ message2 = "Please maintain the history of each command..."
 
 ### Environment Variables
 - `RUST_LOG`: Standard way to control log verbosity for `tracing` (e.g., `RUST_LOG=info`, `RUST_LOG=debug`). `main.rs` defaults to "info" if not set.
-- `OPENAI_API_KEY`: While `chatgpt.rs` loads from `Config.toml`, deployments (especially containerized) might prefer setting this via environment variable for secrets management. The application would need modification to read this from env if not already doing so as a fallback or primary. (Current `chatgpt.rs` reads directly from `Config.toml`).
+- `CHATGPT_API_KEY`: **Required**. The OpenAI API key is loaded from this environment variable for security. The application will not start without this being set.
 
 ### Kubernetes ConfigMap & Secrets
 For Kubernetes deployments:
@@ -292,18 +302,18 @@ data:
     # log_level typically managed by RUST_LOG env var
     # log_directory is "logs" by default in the app
 
-    [openai.static_messages]
+    [llm.static_messages]
     message1 = "Hi ChatGPT! You are the backend for a honeypot..."
     message2 = "Please maintain the history of each command..."
 
     [registration]
     # rustbucket_registry_url = "http://your-registry.example.com/register"
 
-# Example Kubernetes Secret for OpenAI API Key
+# Example Kubernetes Secret for ChatGPT API Key
 apiVersion: v1
 kind: Secret
 metadata:
-  name: openai-api-key-secret
+  name: chatgpt-api-key-secret
 type: Opaque
 stringData:
   apikey: "sk-your-actual-openai-key" # The key itself
@@ -363,7 +373,7 @@ Recommendations for container deployments:
 
 ### Access Control
 - **Management Access**: Secure SSH or other management access to the honeypot host with strong credentials and MFA.
-- **API Keys**: Protect the `OPENAI_API_KEY`. Use secrets management tools appropriate for your deployment environment. Rotate keys periodically.
+- **API Keys**: Protect the `CHATGPT_API_KEY`. Use secrets management tools appropriate for your deployment environment. Rotate keys periodically.
 - **Log Access**: If logs are shipped to a central store, secure access to that store.
 - **Network**: Strict firewall rules (ingress and egress).
 
@@ -401,12 +411,12 @@ Recommendations for container deployments:
 
 ### Deployment Checklist
 1. **Pre-deployment**:
+   - [ ] Set `CHATGPT_API_KEY` environment variable with OpenAI API key
    - [ ] Configure `Config.toml`:
-     - [ ] Set `[openai] api_key`.
-     - [ ] Review `[openai.static_messages]`.
-     - [ ] (Optional) Configure `[registration] rustbucket_registry_url`.
-   - [ ] Ensure `Config.toml` will be accessible by the application in the target environment.
-   - [ ] Prepare secrets management for `OPENAI_API_KEY` if externalizing from `Config.toml` (e.g., env var, K8s secret).
+     - [ ] Review `[llm.static_messages]` section
+     - [ ] (Optional) Configure `[registration] rustbucket_registry_url`
+   - [ ] Ensure `Config.toml` will be accessible by the application in the target environment
+   - [ ] Prepare secrets management for `CHATGPT_API_KEY` (e.g., env var, K8s secret)
    - [ ] Review firewall rules for active ports (21, 23, 25, 80) and management access.
    - [ ] Test `Config.toml` validity if possible (e.g., by a dry run or local test).
 
@@ -432,7 +442,7 @@ Recommendations for container deployments:
 - **Monthly/As Needed**:
   - Update OS and host dependencies.
   - Update Rust, application dependencies (rebuild and redeploy).
-- **Quarterly/Annually**: Rotate `OPENAI_API_KEY`.
+- **Quarterly/Annually**: Rotate `CHATGPT_API_KEY`.
 
 ### Incident Response
 - **High Connection Volume**: Monitor resource usage (CPU, memory, network). Scale horizontally if using containers/Kubernetes.

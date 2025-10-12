@@ -49,37 +49,55 @@ impl ChatService for ChatGPT {
 
 ## Configuration System
 
-### Config.toml Structure
-The `ChatGPT` struct requires the following section in `Config.toml`:
-```toml
-[openai]
-api_key = "your-openai-api-key" # Your actual OpenAI API key
+### Configuration System
+The `ChatGPT` struct requires configuration from two sources:
 
-[openai.static_messages]
+#### 1. Environment Variable
+```bash
+export CHATGPT_API_KEY="your-openai-api-key"
+```
+The API key is loaded from the `CHATGPT_API_KEY` environment variable for security.
+
+#### 2. Config.toml Structure
+```toml
+[llm.static_messages]
 # These messages are used to set the context for ChatGPT.
 message1 = "Hi ChatGPT! You are the backend for a honeypot. An unknown user has connected to the honeypot and is executing actions on it. The user is not aware that they are interacting with a honeypot. The goal is to gather information about the user's intentions and actions. I need you to act like an Ubuntu server and respond to the user's commands like a server would."
 message2 = "Please maintain the history of each command and always respond as if you were an actual Ubuntu server. Don't respond using full sentences, or the user will know it's you! If the user inputs an invalid command or text, please respond with 'Invalid Command'."
-# message3 is currently not used by src/chatgpt.rs but was in the original design.
-# It can be kept for future use or removed if deemed unnecessary.
-# message3 = "The user has closed the session..."
 ```
-*(Note: The `src/chatgpt.rs` code currently only loads `message1` and `message2` from `StaticMessages` struct. The design document previously listed `message3` which is not used in the current implementation of `chatgpt.rs`.)*
+
+**Security Note**: The API key is NOT stored in the config file for security reasons.
 
 ### Configuration Loading (`src/chatgpt.rs`)
 The `ChatGPT::from_config` method loads this configuration:
 ```rust
 // Simplified from src/chatgpt.rs
-pub fn from_config(config_file_path: &str) -> Result<ChatGPT, Box<dyn Error>> {
+pub fn from_config(_config_file: &str) -> Result<ChatGPT, Box<dyn Error>> {
     let settings = Config::builder()
-        .add_source(File::with_name(config_file_path)) // Typically "Config.toml"
+        .add_source(File::with_name("Config.toml")) // Always uses Config.toml
         .build()?;
     
-    // Deserializes into internal structs OpenAIConfig and StaticMessages
-    let openai_config: OpenAIConfig = settings.get::<OpenAIConfig>("openai")?;
+    // Load API key from environment variable for security
+    let api_key = std::env::var("CHATGPT_API_KEY")
+        .map_err(|_| Box::new(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "ChatGPT API key not found in environment variable CHATGPT_API_KEY",
+        )))?;
+    
+    // Load static messages from config file under [llm] section
+    let llm_config_from_file: Option<OpenAIConfig> = settings.get("llm").ok();
+    let static_messages = llm_config_from_file
+        .map(|conf| conf.static_messages)
+        .ok_or_else(|| {
+            Box::new(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "Static messages not found in config file",
+            ))
+        })?;
 
     Ok(ChatGPT {
-        api_key: openai_config.api_key,
-        static_messages: openai_config.static_messages,
+        api_key,
+        static_messages,
         client: Client::new(),
     })
 }
@@ -211,10 +229,10 @@ let response = chatgpt.send_message(&received_data).await
 ## Security and Privacy
 
 ### API Key Management
-- **Storage**: Configuration file (excluded from git)
-- **Access**: Environment variable alternative available
-- **Rotation**: Manual key rotation required
-- **Exposure Risk**: Config file access = API access
+- **Storage**: Environment variable only (`CHATGPT_API_KEY`)
+- **Access**: Loaded from environment at runtime
+- **Rotation**: Update environment variable and restart
+- **Exposure Risk**: Environment access required
 
 ### Data Privacy
 - **Attacker Data**: Sent to OpenAI servers

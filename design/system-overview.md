@@ -8,8 +8,8 @@ Rustbucket is a lightweight honeypot written in Rust designed to capture and ana
 - **Multi-Protocol Support (Designed)**: SSH (22), DNS (53), and custom ports (e.g., SMS 5000) are part of the design and configuration structure but not actively listening in the default `main.rs`.
 - **AI-Powered Responses**: Utilizes a `ChatService` trait (implemented by `chatgpt.rs`) to integrate with OpenAI's ChatGPT for dynamic, contextual server responses.
 - **Daily Rolling Logs**: Captures interactions using the `tracing` crate, with logs saved to daily rotating files (e.g., `logs/rustbucket.log.YYYY-MM-DD`).
-- **Instance Registration (Optional)**: Includes a module (`registration.rs`) to register the honeypot instance with a central registry (currently not called from `main.rs`).
-- **Configurable**: TOML-based configuration (`Config.toml`) for AI behavior (OpenAI API key, prompts) and instance registration URL. Port listening is currently hardcoded in `main.rs`.
+- **Instance Registration (Optional)**: Includes a module (`registration.rs`) to register the honeypot instance with a central registry (called during startup in `main.rs`).
+- **Configurable**: TOML-based configuration (`Config.toml`) for AI prompts and instance registration URL. OpenAI API key loaded from `CHATGPT_API_KEY` environment variable. Port listening is currently hardcoded in `main.rs`.
 - **Scalable**: Async architecture using Tokio for handling concurrent connections.
 
 ## High-Level Architecture
@@ -23,8 +23,7 @@ Internet → Multiple Port Listeners (Hardcoded: 21, 23, 25, 80)
                    │
                    └─→ Logging (`tracing` to daily files)
 
-(Optional, not in main flow currently)
-Rustbucket Instance → Registration (`registration.rs`) → Central Registry
+Rustbucket Instance → Registration (`registration.rs`) → Central Registry (during startup)
 ```
 
 ## System Components
@@ -54,15 +53,16 @@ Rustbucket Instance → Registration (`registration.rs`) → Central Registry
 ### 5. Configuration Management (`Config.toml`, loaded by `chatgpt.rs`, `registration.rs`)
 - TOML-based configuration file (`Config.toml`).
 - Used for:
-    - OpenAI API key and system prompt messages (`[openai]` section).
-    - Instance registration URL (`[registration]` section).
+    - System prompt messages (`[llm.static_messages]` section)
+    - Instance registration URL (`[registration]` section)
+    - OpenAI API key loaded from `CHATGPT_API_KEY` environment variable for security
 - Port configuration (enabled services, port numbers) is defined in structs within `handler.rs` and can be described in `Config.toml` (`[ports]` section), but `main.rs` currently uses hardcoded ports for listeners and does not dynamically load this port configuration.
 
 ### 6. Instance Registration (`registration.rs`)
-- An optional module that allows the Rustbucket instance to register itself with a central server.
-- Generates a unique name and token for the instance.
-- Sends this information via HTTP POST to a configurable URL.
-- This functionality is present but not currently integrated into the main application flow in `main.rs`.
+- A module that allows the Rustbucket instance to register itself with a central server during startup
+- Generates a unique name ("rustbucket-{8 alphanumeric chars}") and 32-character token for the instance
+- Sends this information via HTTP POST JSON payload to a configurable URL
+- Integrated into the main application flow and called during startup in `main.rs`
 
 ## Deployment Scenarios
 - **Standalone Server**: Direct deployment on exposed VMs or physical servers.
@@ -73,4 +73,4 @@ Rustbucket Instance → Registration (`registration.rs`) → Central Registry
 - Honeypot nature requires internet exposure
 - No authentication or authorization (intentional vulnerability)
 - Logs may contain sensitive attack data requiring secure handling
-- API keys stored in configuration files (excluded from version control)
+- API key stored in environment variable (`CHATGPT_API_KEY`) for security

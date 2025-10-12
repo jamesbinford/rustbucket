@@ -1,14 +1,11 @@
 // src/registration.rs
 
 use serde::{Deserialize, Serialize}; // For JSON serialization
-use reqwest; // For HTTP requests
 use tracing::{info, error, warn}; // For logging
-use config; // For configuration management
-use std::fs::File; // For file operations
-use std::io::Write; // For file operations
+use rand::distributions::Alphanumeric;
+use rand::Rng;
 
 const DEFAULT_REGISTRY_URL: &str = "http://localhost:8080/register"; // Fallback if config fails
-const TOKEN_FILE_PATH: &str = "token.txt";
 
 #[derive(Debug, Deserialize)]
 struct RegistrationConfig {
@@ -21,14 +18,11 @@ struct AppConfig { // A struct to represent the top-level config structure
 }
 
 #[derive(Serialize)]
-struct RegistrationPayload<'a> {
-    message: &'a str,
-}
-
-#[derive(Deserialize, Debug)]
-struct RegistrationResponse {
+struct RegistrationPayload {
+    name: String,
     token: String,
 }
+
 
 // Placeholder for the main public function
 pub async fn register_instance() {
@@ -54,9 +48,15 @@ pub async fn register_instance() {
         }
     };
 
-    // 2. Create payload
+    // 2. Generate instance identity and create payload
+    let instance_name = generate_name();
+    let instance_token = generate_token();
+    info!("Generated instance name: {}", instance_name);
+    info!("Generated instance token for debugging: {}", instance_token);
+    
     let payload = RegistrationPayload {
-        message: "Instance registration placeholder",
+        name: instance_name,
+        token: instance_token,
     };
 
     // 3. Make HTTP POST request
@@ -66,49 +66,23 @@ pub async fn register_instance() {
     match client.post(&registry_url).json(&payload).send().await {
         Ok(response) => {
             let status = response.status();
-            if status == reqwest::StatusCode::OK { // HTTP 200
-                match response.json::<RegistrationResponse>().await {
-                    Ok(reg_response) => {
-                        info!("Successfully received registration response with token.");
-                        match File::create(TOKEN_FILE_PATH) {
-                            Ok(mut file) => {
-                                match file.write_all(reg_response.token.as_bytes()) {
-                                    Ok(_) => {
-                                        info!("Successfully wrote token to {}", TOKEN_FILE_PATH);
-                                    }
-                                    Err(e) => {
-                                        error!("Failed to write token to {}: {}", TOKEN_FILE_PATH, e);
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                error!("Failed to create token file {}: {}", TOKEN_FILE_PATH, e);
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        error!("Failed to parse registration response JSON: {}. Full response text might provide clues.", e);
-                        // Optionally, log the full response text if parsing fails, but be careful with sensitive data.
-                        // let response_text = response.text().await.unwrap_or_else(|_| "Failed to read response body".to_string());
-                        // error!("Full response text: {}", response_text);
-                    }
+            let response_text = response.text().await.unwrap_or_else(|_| "Failed to read response body".to_string());
+            
+            match status {
+                reqwest::StatusCode::OK => { // HTTP 200
+                    info!("Successfully registered instance '{}'. Server response: {}", payload.name, response_text);
                 }
-            } else {
-                // Handle non-200 responses
-                let response_text = response.text().await.unwrap_or_else(|_| "Failed to read response body".to_string());
-                match status {
-                    reqwest::StatusCode::NOT_FOUND => { // HTTP 404
-                        error!("Registration failed: Bad URL (404 Not Found) for {}. Server response: {}", registry_url, response_text);
-                    }
-                    reqwest::StatusCode::INTERNAL_SERVER_ERROR => { // HTTP 500
-                        error!("Registration failed: Server error (500 Internal Server Error) at {}. Server response: {}", registry_url, response_text);
-                    }
-                    _ => {
-                        warn!(
-                            "Registration attempt to {} returned unexpected status: {}. Server response: {}",
-                            registry_url, status, response_text
-                        );
-                    }
+                reqwest::StatusCode::NOT_FOUND => { // HTTP 404
+                    error!("Registration failed: Bad URL (404 Not Found) for {}. Server response: {}", registry_url, response_text);
+                }
+                reqwest::StatusCode::INTERNAL_SERVER_ERROR => { // HTTP 500
+                    error!("Registration failed: Server error (500 Internal Server Error) at {}. Server response: {}", registry_url, response_text);
+                }
+                _ => {
+                    warn!(
+                        "Registration attempt to {} returned unexpected status: {}. Server response: {}",
+                        registry_url, status, response_text
+                    );
                 }
             }
         }
@@ -118,22 +92,22 @@ pub async fn register_instance() {
     }
 }
 
-// fn generate_name() -> String {
-//     let random_suffix: String = rand::thread_rng()
-//         .sample_iter(&Alphanumeric)
-//         .take(8) // Generate an 8-character random suffix
-//         .map(char::from)
-//         .collect();
-//     format!("rustbucket-{}", random_suffix)
-// }
+fn generate_name() -> String {
+    let random_suffix: String = rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(8) // Generate an 8-character random suffix
+        .map(char::from)
+        .collect();
+    format!("rustbucket-{}", random_suffix)
+}
 
-// fn generate_token() -> String {
-//     rand::thread_rng()
-//         .sample_iter(&Alphanumeric)
-//         .take(32) // Generate a 32-character random token
-//         .map(char::from)
-//         .collect()
-// }
+fn generate_token() -> String {
+    rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(32) // Generate a 32-character random token
+        .map(char::from)
+        .collect()
+}
 
 #[cfg(test)]
 mod tests {
@@ -141,13 +115,6 @@ mod tests {
     use mockito::Server;
     use tempfile::NamedTempFile;
     use std::io::Write;
-
-    // Helper function to clean up token.txt
-    fn cleanup_token_file() {
-        if std::path::Path::new(TOKEN_FILE_PATH).exists() {
-            std::fs::remove_file(TOKEN_FILE_PATH).expect("Failed to remove token.txt during cleanup");
-        }
-    }
 
     mod unit_tests {
         use super::*;
@@ -186,21 +153,50 @@ some_key = "some_value"
         #[tokio::test]
         async fn test_registration_payload_serialization() {
             let payload = RegistrationPayload {
-                message: "Test instance registration",
+                name: "rustbucket-abc12345".to_string(),
+                token: "test_token_32_chars_long_string".to_string(),
             };
             
             let json_result = serde_json::to_string(&payload);
             assert!(json_result.is_ok(), "Payload should serialize to JSON");
             
             let json_str = json_result.unwrap();
-            assert!(json_str.contains("Test instance registration"), "JSON should contain the message");
+            assert!(json_str.contains("rustbucket-abc12345"), "JSON should contain the instance name");
+            assert!(json_str.contains("test_token_32_chars_long_string"), "JSON should contain the token");
+        }
+
+        #[tokio::test]
+        async fn test_generate_name_format() {
+            let name = generate_name();
+            assert!(name.starts_with("rustbucket-"), "Generated name should start with 'rustbucket-'");
+            assert_eq!(name.len(), 19, "Generated name should be 19 characters long (rustbucket- + 8 chars)");
+            
+            let suffix = &name[11..];
+            assert!(suffix.chars().all(|c| c.is_ascii_alphanumeric()), "Name suffix should be alphanumeric");
+        }
+
+        #[tokio::test]
+        async fn test_generate_token_format() {
+            let token = generate_token();
+            assert_eq!(token.len(), 32, "Generated token should be 32 characters long");
+            assert!(token.chars().all(|c| c.is_ascii_alphanumeric()), "Token should be alphanumeric");
+        }
+
+        #[tokio::test]
+        async fn test_generate_functions_uniqueness() {
+            let name1 = generate_name();
+            let name2 = generate_name();
+            let token1 = generate_token();
+            let token2 = generate_token();
+            
+            assert_ne!(name1, name2, "Generated names should be unique");
+            assert_ne!(token1, token2, "Generated tokens should be unique");
         }
 
         #[tokio::test]
         async fn test_register_instance_runs_without_config_and_no_server() {
             // This test ensures the function runs without panicking when Config.toml is absent
             // and the default registry URL is likely unavailable.
-            cleanup_token_file(); // Ensure no leftover token file
 
             // Ensure no Config.toml exists for this test
             if std::path::Path::new("Config.toml").exists() {
@@ -209,17 +205,13 @@ some_key = "some_value"
 
             register_instance().await; // Should log errors but not panic
 
-            // No specific assert on token.txt as server call is expected to fail.
             // Test passes if it doesn't panic and logs appropriately.
-            cleanup_token_file(); // Clean up just in case, though not expected
         }
 
         #[tokio::test]
-        async fn test_register_instance_success_writes_token() {
+        async fn test_register_instance_success() {
             // Attempt to initialize tracing for test output. Ignore error if already initialized.
             let _ = tracing_subscriber::fmt().with_test_writer().try_init();
-
-            cleanup_token_file();
 
             let mut server = mockito::Server::new_async().await;
             let mock_url = server.url();
@@ -234,25 +226,19 @@ rustbucket_registry_url = "{}/test_register"
             );
             std::fs::write("Config.toml", test_config_content).expect("Failed to write test Config.toml");
 
-            let mock_token = "test_token_12345";
-            let response_body = serde_json::json!({ "token": mock_token }).to_string();
+            let response_body = r#"{"status":"registered","id":"test-123"}"#;
 
             let _m = server.mock("POST", "/test_register")
                 .with_status(200)
                 .with_header("content-type", "application/json")
-                .with_body(&response_body)
+                .with_body(response_body)
+                .expect(1)
                 .create_async()
                 .await;
 
             register_instance().await;
 
-            // Check if token.txt was created and contains the correct token
-            assert!(std::path::Path::new(TOKEN_FILE_PATH).exists(), "token.txt was not created");
-            let token_content = std::fs::read_to_string(TOKEN_FILE_PATH).expect("Failed to read token.txt");
-            assert_eq!(token_content, mock_token, "token.txt does not contain the correct token");
-
             // Clean up
-            cleanup_token_file();
             std::fs::remove_file("Config.toml").expect("Failed to remove test Config.toml");
             // Mock server is cleaned up when `server` goes out of scope.
         }
@@ -266,7 +252,8 @@ rustbucket_registry_url = "{}/test_register"
             info!("Attempting to register instance with URL: {}", registry_url);
 
             let payload = RegistrationPayload {
-                message: "Instance registration placeholder",
+                name: generate_name(),
+                token: generate_token(),
             };
 
             let client = reqwest::Client::new();
@@ -279,7 +266,7 @@ rustbucket_registry_url = "{}/test_register"
 
                     match status {
                         reqwest::StatusCode::OK => {
-                            info!("Successfully sent registration data. Server response: {}", response_text);
+                            info!("Successfully registered instance '{}'. Server response: {}", payload.name, response_text);
                         }
                         reqwest::StatusCode::NOT_FOUND => {
                             error!("Registration failed: Bad URL (404 Not Found) for {}. Server response: {}", registry_url, response_text);
@@ -362,7 +349,7 @@ rustbucket_registry_url = "{}/test_register"
             let mock = server
                 .mock("POST", "/register")
                 .match_header("content-type", "application/json")
-                .match_body(mockito::Matcher::JsonString(r#"{"message":"Instance registration placeholder"}"#.to_string()))
+                .match_body(mockito::Matcher::PartialJsonString(r#"{"name":"rustbucket-"#.to_string()))
                 .with_status(200)
                 .with_body(r#"{"status":"ok"}"#)
                 .create_async()
@@ -387,18 +374,16 @@ rustbucket_registry_url = "{}/test_register"
         }
 
         #[tokio::test]
-        async fn test_token_response_handling() {
-            cleanup_token_file();
-
+        async fn test_successful_registration_response_handling() {
             let mut server = Server::new_async().await;
-            let mock_token = "secure_token_abc123";
-            let response_body = serde_json::json!({ "token": mock_token }).to_string();
+            let response_body = r#"{"status":"registered","message":"Instance successfully registered"}"#;
 
             let mock = server
                 .mock("POST", "/register")
                 .with_status(200)
                 .with_header("content-type", "application/json")
-                .with_body(&response_body)
+                .with_body(response_body)
+                .expect(1)
                 .create_async()
                 .await;
 
@@ -413,15 +398,9 @@ rustbucket_registry_url = "{}/register"
 
             register_instance().await;
 
-            // Verify token was written correctly
-            assert!(std::path::Path::new(TOKEN_FILE_PATH).exists(), "token.txt was not created");
-            let token_content = std::fs::read_to_string(TOKEN_FILE_PATH).expect("Failed to read token.txt");
-            assert_eq!(token_content, mock_token, "token.txt does not contain the correct token");
-
             mock.assert_async().await;
 
             // Clean up
-            cleanup_token_file();
             std::fs::remove_file("Config.toml").expect("Failed to remove test Config.toml");
         }
     }
