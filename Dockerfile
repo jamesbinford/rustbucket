@@ -19,7 +19,7 @@ EXPOSE 21
 
 # Copy the Rust executable from the builder stage
 COPY --from=builder /app/target/release/rustbucket /usr/local/bin/rustbucket
-COPY Config.toml ./
+COPY Config.toml.example ./Config.toml
 
 # Set the entrypoint to the Rust executable
 ENTRYPOINT ["/usr/local/bin/rustbucket"]
