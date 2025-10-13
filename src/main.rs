@@ -10,6 +10,7 @@ use tracing_subscriber::EnvFilter;
 use tracing_appender::rolling;
 use handler::handle_client;
 use chatgpt::ChatGPT;
+use tokio::signal;
 
 
 
@@ -105,8 +106,8 @@ async fn main() -> tokio::io::Result<()> {
         // std::process::exit(1);
     }
     
-    // Register this instance
-    registration::register_instance().await;
+    // Register this instance (optional)
+    let health_check_handle = registration::register_instance().await;
     
     // Create tasks for each listener on different ports
     let ports = vec!["0.0.0.0:25", "0.0.0.0:23", "0.0.0.0:21", "0.0.0.0:80"];
@@ -115,15 +116,48 @@ async fn main() -> tokio::io::Result<()> {
     
     for port in ports {
         let handle = tokio::spawn(async move {
-            start_listener(port).await.unwrap();
+            if let Err(e) = start_listener(port).await {
+                error!("Listener for {} failed: {}", port, e);
+            }
         });
         handles.push(handle);
     }
     
-    // Wait for all listeners to finish (this will run indefinitely)
-    for handle in handles {
-        handle.await.unwrap();
+    // Wait for shutdown signal
+    #[cfg(unix)]
+    {
+        let mut term_signal = signal::unix::signal(signal::unix::SignalKind::terminate()).unwrap();
+        tokio::select! {
+            _ = signal::ctrl_c() => {
+                info!("Received SIGINT (Ctrl+C), initiating graceful shutdown...");
+            }
+            _ = term_signal.recv() => {
+                info!("Received SIGTERM, initiating graceful shutdown...");
+            }
+        }
     }
+    #[cfg(not(unix))]
+    {
+        tokio::select! {
+            _ = signal::ctrl_c() => {
+                info!("Received SIGINT (Ctrl+C), initiating graceful shutdown...");
+            }
+        }
+    }
+    
+    // Gracefully shutdown health check if it exists
+    if let Some(handle) = health_check_handle {
+        info!("Shutting down health check...");
+        handle.shutdown().await;
+    }
+    
+    // Abort all listener tasks
+    info!("Shutting down listeners...");
+    for handle in handles {
+        handle.abort();
+    }
+    
+    info!("Shutdown complete");
     
     // Flush logs before shutdown
     drop(_guard);

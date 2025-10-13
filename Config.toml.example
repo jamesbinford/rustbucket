@@ -15,4 +15,13 @@ verbose = false
 static_messages = { message1 = "You are an Ubuntu Server.", message2 = "Respond as an Ubuntu server would. Do not break character." }
 
 [registration]
+# URL of the central registry server where this instance should register.
+# If not specified or commented out, registration will be skipped entirely.
 rustbucket_registry_url = "http://localhost:8080/register"
+
+# Health check configuration
+# Time in seconds between health check requests (default: 300 seconds / 5 minutes)
+health_check_interval = 300
+
+# Whether to send periodic health checks (default: true if registration is configured)
+health_check_enabled = true

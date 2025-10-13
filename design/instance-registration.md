@@ -2,7 +2,9 @@
 
 ## 1. Overview
 
-Rustbucket includes a feature to allow individual honeypot instances to register themselves with a central registry server. This can be useful for tracking deployed instances, gathering basic metadata, or coordinating distributed honeypots.
+Rustbucket includes an optional feature to allow individual honeypot instances to register themselves with a central registry server. This can be useful for tracking deployed instances, gathering basic metadata, or coordinating distributed honeypots.
+
+**Instance registration is completely optional.** If no Rustbucket URL is configured in either an environment variable or in `Config.toml`, rustbucket simply won't attempt to register the instance and will continue normal operation.
 
 The registration is performed by the `registration.rs` module. The main public function is `register_instance()`, which is an asynchronous function. This function is called automatically during startup from `src/main.rs` before the port listeners begin accepting connections.
 
@@ -67,7 +69,8 @@ The system logs the outcome of the registration attempt based on the HTTP respon
 
 ## 4. Error Handling
 
-The `registration.rs` module handles errors at several stages:
+The `registration.rs` module handles errors at several 
+stages:
 
 -   **Configuration Loading**: If `Config.toml` cannot be read or the `rustbucket_registry_url` is missing, a warning is logged, and the process continues with a default URL. Critical parsing errors might cause `register_instance` to use the default URL immediately.
 -   **HTTP Request Failure**: Errors during the `reqwest::Client::post().send()` call (e.g., network errors) are caught and logged. The registration attempt is aborted for that cycle.
@@ -82,7 +85,61 @@ The `register_instance()` function itself does not return a `Result` and is desi
 -   **Data Exposure**: The instance name and token are sent to the registry. Consideration should be given to what information the registry stores and how it's protected.
 -   **Default URL**: The fallback to `http://localhost:8080/register` might have security implications if a malicious service is running on that port on the honeypot host or a reachable network segment.
 
-## 6. Future Enhancements
+## 6. Health Check Strategy
+
+To maintain registry awareness of active instances, Rustbucket implements a periodic health check mechanism.
+
+### 6.1. Health Check Configuration
+
+Health checks are configured in the `[registration]` section of `Config.toml`:
+
+```toml
+[registration]
+rustbucket_registry_url = "http://your-registry.example.com/register"
+health_check_interval = 300  # seconds (default: 5 minutes)
+health_check_enabled = true  # default: true if registration is configured
+```
+
+-   **`health_check_interval`**: (Optional u64) Time in seconds between health check requests. Defaults to 300 seconds (5 minutes).
+-   **`health_check_enabled`**: (Optional bool) Whether to send periodic health checks. Defaults to `true` if registration is configured.
+
+### 6.2. Health Check Process
+
+After successful initial registration, a background task is spawned to send periodic health checks:
+
+1. **Background Task**: Uses `tokio::spawn()` to create a non-blocking background task that runs for the lifetime of the application.
+
+2. **Health Check Payload**: Sends a minimal JSON payload to the registry's health check endpoint:
+   ```json
+   {
+       "name": "<instance_name>",
+       "token": "<instance_token>",
+       "uptime": 12345,
+       "active_connections": 42,
+       "status": "healthy"
+   }
+   ```
+
+3. **Health Check Endpoint**: Uses the same base URL as registration but with `/health` endpoint:
+   - Registration: `http://registry.example.com/register`
+   - Health Check: `http://registry.example.com/health`
+
+4. **Timing**: Uses `tokio::time::sleep()` with the configured interval between checks.
+
+### 6.3. Health Check Error Handling
+
+-   **Network Failures**: Logged as warnings, health checks continue with exponential backoff (max 30 minutes).
+-   **HTTP Errors**: 
+     - 404: Instance not found in registry, attempts re-registration once
+     - 401/403: Authentication failure, logs error and disables further health checks
+     - 500: Server error, continues with backoff
+-   **Registry Unavailable**: After 3 consecutive failures, health check frequency reduces to once per hour until recovery.
+
+### 6.4. Graceful Shutdown
+
+On application shutdown, a final health check is sent with `"status": "shutting_down"` to notify the registry of planned downtime.
+
+## 7. Future Enhancements
 
 -   **Registry Authentication**: The client could use the generated token or other credentials to authenticate with the registry.
 -   **Retry Logic**: Implement retry mechanisms with backoff for transient network errors or server unavailability.
@@ -92,4 +149,5 @@ The `register_instance()` function itself does not return a `Result` and is desi
 -   **Secure Token Handling**: Remove token logging in production and ensure secure transmission (HTTPS).
 -   **Registry Discovery**: Implement a discovery mechanism if the registry URL is not static.
 -   **Deregistration**: A way for instances to de-register.
+-   **Health Check Metrics**: Include additional metrics in health checks (memory usage, disk space, attack statistics).
 ```
