@@ -70,19 +70,6 @@ async fn start_listener(addr: &str) -> tokio::io::Result<()> {
         }
     }
 }
-
-fn check_token_exists() -> bool {
-    let token_path = Path::new("token.txt");
-
-    if !token_path.exists() {
-        warn!("token.txt not found at {}", token_path.display());
-        false
-    } else {
-        info!("token.txt found at {}", token_path.display());
-        true
-    }
-}
-
 #[tokio::main]
 async fn main() -> tokio::io::Result<()> {
     // Set up rolling logs
@@ -97,15 +84,6 @@ async fn main() -> tokio::io::Result<()> {
         .init();
     info!("Tracing initialized");
 
-    // Check for token.txt
-    if !check_token_exists() {
-        // Output to console as tracing might not be fully set up or listened to yet
-        // and this is a critical piece of information for the user.
-        println!("CRITICAL: token.txt not found. Rustbucket may not function as expected.");
-        // Depending on requirements, might exit here:
-        // std::process::exit(1);
-    }
-    
     // Register this instance (optional)
     let health_check_handle = registration::register_instance().await;
     
