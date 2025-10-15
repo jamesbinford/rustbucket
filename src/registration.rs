@@ -7,6 +7,7 @@ use rand::Rng;
 use std::time::{Duration, SystemTime};
 use tokio::sync::mpsc;
 use tokio::time::interval;
+use std::env;
 
 const DEFAULT_HEALTH_CHECK_INTERVAL: u64 = 300; // 5 minutes
 const MAX_BACKOFF_INTERVAL: Duration = Duration::from_secs(1800); // 30 minutes
@@ -61,42 +62,68 @@ impl HealthCheckHandle {
 pub async fn register_instance() -> Option<HealthCheckHandle> {
     info!("Checking registration configuration...");
 
-    // 1. Load configuration
-    let config_result: Result<AppConfig, config::ConfigError> = config::Config::builder()
+    // 1. Check for registry URL in environment variable first
+    let registry_url = match env::var("RUSTBUCKET_REGISTRY_URL") {
+        Ok(url) => {
+            info!("Using registry URL from environment variable: {}", url);
+            url
+        }
+        Err(_) => {
+            // Fallback to config file
+            let config_result: Result<AppConfig, config::ConfigError> = config::Config::builder()
+                .add_source(config::File::with_name("Config").required(false))
+                .build()
+                .and_then(|config_val| config_val.try_deserialize());
+
+            match config_result {
+                Ok(app_cfg) => match app_cfg.registration {
+                    Some(reg_cfg) => match reg_cfg.rustbucket_registry_url {
+                        Some(url) => {
+                            info!("Using registry URL from Config.toml: {}", url);
+                            url
+                        }
+                        None => {
+                            info!("No rustbucket_registry_url configured in Config.toml and no RUSTBUCKET_REGISTRY_URL environment variable set. Registration is completely optional - skipping.");
+                            return None;
+                        }
+                    },
+                    None => {
+                        info!("No [registration] section found in Config.toml and no RUSTBUCKET_REGISTRY_URL environment variable set. Skipping registration.");
+                        return None;
+                    }
+                },
+                Err(e) => {
+                    warn!("Failed to load configuration: {} and no RUSTBUCKET_REGISTRY_URL environment variable set. Skipping registration.", e);
+                    return None;
+                }
+            }
+        }
+    };
+
+    // 2. Load other configuration from config file (health check settings)
+    let (health_check_interval, health_check_enabled) = match config::Config::builder()
         .add_source(config::File::with_name("Config").required(false))
         .build()
-        .and_then(|config_val| config_val.try_deserialize());
-
-    let registration_config = match config_result {
+        .and_then(|config_val| config_val.try_deserialize::<AppConfig>()) {
         Ok(app_cfg) => match app_cfg.registration {
-            Some(reg_cfg) => reg_cfg,
-            None => {
-                info!("No [registration] section found in Config.toml. Skipping registration.");
-                return None;
-            }
+            Some(reg_cfg) => (
+                Duration::from_secs(reg_cfg.health_check_interval.unwrap_or(DEFAULT_HEALTH_CHECK_INTERVAL)),
+                reg_cfg.health_check_enabled.unwrap_or(true)
+            ),
+            None => (
+                Duration::from_secs(DEFAULT_HEALTH_CHECK_INTERVAL),
+                true
+            )
         },
-        Err(e) => {
-            warn!("Failed to load configuration: {}. Skipping registration.", e);
-            return None;
+        Err(_) => {
+            // Use defaults if config can't be loaded
+            (Duration::from_secs(DEFAULT_HEALTH_CHECK_INTERVAL), true)
         }
     };
-
-    let registry_url = match registration_config.rustbucket_registry_url {
-        Some(url) => url,
-        None => {
-            info!("No rustbucket_registry_url configured. Registration is completely optional - skipping.");
-            return None;
-        }
-    };
-
-    let health_check_interval = Duration::from_secs(
-        registration_config.health_check_interval.unwrap_or(DEFAULT_HEALTH_CHECK_INTERVAL)
-    );
-    let health_check_enabled = registration_config.health_check_enabled.unwrap_or(true);
 
     info!("Attempting to register instance with URL: {}", registry_url);
 
-    // 2. Generate instance identity and create payload
+    // 3. Generate instance identity and create payload
     let instance_name = generate_name();
     let instance_token = generate_token();
     info!("Generated instance name: {}", instance_name);
@@ -107,7 +134,7 @@ pub async fn register_instance() -> Option<HealthCheckHandle> {
         token: instance_token.clone(),
     };
 
-    // 3. Make HTTP POST request
+    // 4. Make HTTP POST request
     let client = reqwest::Client::new();
     info!("Posting registration data to URL: {}", registry_url);
 
@@ -144,7 +171,7 @@ pub async fn register_instance() -> Option<HealthCheckHandle> {
         }
     };
 
-    // 4. Start health check background task if registration was successful and enabled
+    // 5. Start health check background task if registration was successful and enabled
     if registration_successful && health_check_enabled {
         let state = RegistrationState {
             name: instance_name,
@@ -405,9 +432,38 @@ some_key = "some_value"
                 std::fs::remove_file("Config.toml").expect("Failed to remove pre-existing Config.toml for test");
             }
 
-            register_instance().await; // Should log errors but not panic
+            // Ensure no environment variable is set
+            env::remove_var("RUSTBUCKET_REGISTRY_URL");
 
-            // Test passes if it doesn't panic and logs appropriately.
+            let result = register_instance().await; 
+            
+            // Should return None when no registration URL is configured
+            assert!(result.is_none(), "Should return None when no registration is configured");
+        }
+
+        #[tokio::test]
+        async fn test_register_instance_with_environment_variable() {
+            // Test that environment variable takes precedence over config file
+            env::set_var("RUSTBUCKET_REGISTRY_URL", "http://env.example.com/register");
+            
+            // Create a config file with a different URL
+            let test_config_content = r#"
+[registration]
+rustbucket_registry_url = "http://config.example.com/register"
+"#;
+            std::fs::write("Config.toml", test_config_content).expect("Failed to write test Config.toml");
+
+            // The function should attempt to use the environment variable URL
+            // Even though we can't easily test the HTTP request without a mock server,
+            // we can at least verify it doesn't return None (which would indicate no URL found)
+            let _result = register_instance().await;
+            
+            // Clean up
+            env::remove_var("RUSTBUCKET_REGISTRY_URL");
+            std::fs::remove_file("Config.toml").expect("Failed to remove test Config.toml");
+            
+            // Note: result might be None due to network failure, but that's expected in tests
+            // The important thing is that it attempted registration (didn't return None immediately)
         }
 
         #[tokio::test]

@@ -10,20 +10,35 @@ The registration is performed by the `registration.rs` module. The main public f
 
 ## 2. Configuration
 
-The registration process is configured via the `Config.toml` file, specifically within the `[registration]` section.
+The registration process is configured primarily via environment variables, with fallback support for the `Config.toml` file.
 
-### `Config.toml` Structure:
-```toml
-[registration]
-# URL of the central registry server where this instance should register.
-rustbucket_registry_url = "http://your-registry.example.com/register"
+### Environment Variable Configuration:
+The registry URL is primarily configured through the `RUSTBUCKET_REGISTRY_URL` environment variable:
+
+```bash
+export RUSTBUCKET_REGISTRY_URL="http://your-registry.example.com/register"
 ```
 
--   **`rustbucket_registry_url`**: (Optional String) The full URL of the endpoint on the central registry server that handles new instance registrations.
-    -   If this key is missing from `Config.toml` or the `[registration]` section itself is absent, the system will log a warning and fall back to a default URL (`http://localhost:8080/register` as defined in `src/registration.rs`).
+### `Config.toml` Fallback Structure:
+If the environment variable is not set, the system will check `Config.toml`:
+```toml
+[registration]
+# Fallback URL of the central registry server (only used if RUSTBUCKET_REGISTRY_URL env var is not set)
+rustbucket_registry_url = "http://your-registry.example.com/register"
 
-### Configuration Loading:
-The `register_instance()` function in `src/registration.rs` attempts to load this URL from `Config.toml`. If the file, section, or key is not found, or if there's an error parsing the configuration, it falls back to the default URL and logs the issue.
+# Health check configuration
+health_check_interval = 300  # seconds (default: 5 minutes)
+health_check_enabled = true  # default: true if registration is configured
+```
+
+-   **`RUSTBUCKET_REGISTRY_URL`**: (Environment Variable) The full URL of the endpoint on the central registry server that handles new instance registrations. **This is the preferred configuration method.**
+-   **`rustbucket_registry_url`**: (Optional Config String) Fallback URL used only if the environment variable is not set.
+
+### Configuration Loading Priority:
+The `register_instance()` function in `src/registration.rs` loads configuration in this order:
+1. Check for `RUSTBUCKET_REGISTRY_URL` environment variable
+2. If not found, attempt to load from `Config.toml` → `[registration]` → `rustbucket_registry_url`
+3. If neither is found, registration is skipped entirely (no default URL)
 
 ## 3. Registration Process
 

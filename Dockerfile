@@ -16,6 +16,9 @@ RUN apt-get update && apt-get install -y \
 EXPOSE 25
 EXPOSE 23
 EXPOSE 21
+EXPOSE 80
+EXPOSE 22
+EXPOSE 53
 
 # Copy the Rust executable from the builder stage
 COPY --from=builder /app/target/release/rustbucket /usr/local/bin/rustbucket
