@@ -16,7 +16,7 @@ The registration process is configured primarily via environment variables, with
 The registry URL is primarily configured through the `RUSTBUCKET_REGISTRY_URL` environment variable:
 
 ```bash
-export RUSTBUCKET_REGISTRY_URL="http://your-registry.example.com/register"
+export RUSTBUCKET_REGISTRY_URL="http://your-registry.example.com/api/v1/register_bucket/"
 ```
 
 ### `Config.toml` Fallback Structure:
@@ -24,7 +24,7 @@ If the environment variable is not set, the system will check `Config.toml`:
 ```toml
 [registration]
 # Fallback URL of the central registry server (only used if RUSTBUCKET_REGISTRY_URL env var is not set)
-rustbucket_registry_url = "http://your-registry.example.com/register"
+rustbucket_registry_url = "http://your-registry.example.com/api/v1/register_bucket/"
 
 # Health check configuration
 health_check_interval = 300  # seconds (default: 5 minutes)
@@ -110,7 +110,7 @@ Health checks are configured in the `[registration]` section of `Config.toml`:
 
 ```toml
 [registration]
-rustbucket_registry_url = "http://your-registry.example.com/register"
+rustbucket_registry_url = "http://your-registry.example.com/api/v1/register_bucket/"
 health_check_interval = 300  # seconds (default: 5 minutes)
 health_check_enabled = true  # default: true if registration is configured
 ```
@@ -135,9 +135,9 @@ After successful initial registration, a background task is spawned to send peri
    }
    ```
 
-3. **Health Check Endpoint**: Uses the same base URL as registration but with `/health` endpoint:
-   - Registration: `http://registry.example.com/register`
-   - Health Check: `http://registry.example.com/health`
+3. **Health Check Endpoint**: Uses the same base URL as registration but replaces `/register_bucket/` with `/health`:
+   - Registration: `http://registry.example.com/api/v1/register_bucket/`
+   - Health Check: `http://registry.example.com/api/v1/health`
 
 4. **Timing**: Uses `tokio::time::sleep()` with the configured interval between checks.
 

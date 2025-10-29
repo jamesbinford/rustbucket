@@ -16,12 +16,5 @@ static_messages = { message1 = "You are an Ubuntu Server.", message2 = "Respond 
 
 [registration]
 # Registration is completely optional. To enable registration, set the environment variable:
-# RUSTBUCKET_REGISTRY_URL=http://localhost:8080/register
+# RUSTBUCKET_REGISTRY_URL=http://localhost:8080/api/v1/register_bucket/
 # If this environment variable is not set, registration will be skipped entirely.
-
-# Health check configuration (only used if registration is enabled)
-# Time in seconds between health check requests (default: 300 seconds / 5 minutes)
-health_check_interval = 300
-
-# Whether to send periodic health checks (default: true if registration is configured)
-health_check_enabled = true

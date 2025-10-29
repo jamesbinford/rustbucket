@@ -4,13 +4,11 @@ mod chatgpt;
 mod registration;
 
 use crate::prelude::*;
-use std::path::Path;
-use tracing::{info, error, warn};
+use tracing::{info, error};
 use tracing_subscriber::EnvFilter;
 use tracing_appender::rolling;
 use handler::handle_client;
 use chatgpt::ChatGPT;
-use tokio::signal;
 
 
 
@@ -75,23 +73,23 @@ async fn main() -> tokio::io::Result<()> {
     // Set up rolling logs
     let file_appender = rolling::daily("logs", "rustbucket.log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
-    
+
     // Initialize tracing subscriber
     tracing_subscriber::fmt::Subscriber::builder()
         .with_env_filter(EnvFilter::new("info"))
-        .with_writer(non_blocking.clone()) // Clone for subscriber
+        .with_writer(non_blocking.clone())
         .with_ansi(false)
         .init();
     info!("Tracing initialized");
 
     // Register this instance (optional)
-    let health_check_handle = registration::register_instance().await;
-    
+    registration::register_instance().await;
+
     // Create tasks for each listener on different ports
     let ports = vec!["0.0.0.0:25", "0.0.0.0:23", "0.0.0.0:21", "0.0.0.0:80"];
-    
+
     let mut handles = vec![];
-    
+
     for port in ports {
         let handle = tokio::spawn(async move {
             if let Err(e) = start_listener(port).await {
@@ -100,44 +98,15 @@ async fn main() -> tokio::io::Result<()> {
         });
         handles.push(handle);
     }
-    
-    // Wait for shutdown signal
-    #[cfg(unix)]
-    {
-        let mut term_signal = signal::unix::signal(signal::unix::SignalKind::terminate()).unwrap();
-        tokio::select! {
-            _ = signal::ctrl_c() => {
-                info!("Received SIGINT (Ctrl+C), initiating graceful shutdown...");
-            }
-            _ = term_signal.recv() => {
-                info!("Received SIGTERM, initiating graceful shutdown...");
-            }
-        }
-    }
-    #[cfg(not(unix))]
-    {
-        tokio::select! {
-            _ = signal::ctrl_c() => {
-                info!("Received SIGINT (Ctrl+C), initiating graceful shutdown...");
-            }
-        }
-    }
-    
-    // Gracefully shutdown health check if it exists
-    if let Some(handle) = health_check_handle {
-        info!("Shutting down health check...");
-        handle.shutdown().await;
-    }
-    
-    // Abort all listener tasks
-    info!("Shutting down listeners...");
+
+    info!("All listeners started. Honeypot is now running indefinitely.");
+
+    // Wait for all listener tasks (they run forever, so this keeps the program alive)
     for handle in handles {
-        handle.abort();
+        let _ = handle.await;
     }
-    
-    info!("Shutdown complete");
-    
-    // Flush logs before shutdown
-    drop(_guard);
+
+    // This point should never be reached unless all listeners fail
+    error!("All listeners have stopped. This should not happen.");
     Ok(())
 }

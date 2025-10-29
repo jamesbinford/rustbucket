@@ -44,3 +44,4 @@ The application uses `Config.toml` for configuration with sections:
 - Static messages in config are used to prime ChatGPT to act like an Ubuntu server
 - The application listens on 0.0.0.0 (all interfaces) for maximum exposure as a honeypot
 - Error handling includes fallback responses when ChatGPT API fails
+- Claude should regularly consider how it can simplify, simplify, simplify.
