@@ -83,6 +83,7 @@ async fn main() -> tokio::io::Result<()> {
     info!("Tracing initialized");
 
     // Register this instance (optional)
+    // @todo Define what happens if registration has already happened. 
     registration::register_instance().await;
 
     // Create tasks for each listener on different ports

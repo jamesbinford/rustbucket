@@ -112,10 +112,22 @@ async fn send_registration_request(
         connections: system_info.connections.clone(),
     };
 
-    let client = reqwest::Client::new();
-    info!("Posting registration data to URL: {}", registry_url);
+    // Ensure URL ends with trailing slash for Django compatibility
+    let normalized_url = if registry_url.ends_with('/') {
+        registry_url.to_string()
+    } else {
+        format!("{}/", registry_url)
+    };
 
-    match client.post(registry_url).json(&payload).send().await {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .expect("Failed to create HTTP client");
+
+    info!("Posting registration data to URL: {}", normalized_url);
+    info!("Registration payload: {:?}", payload);
+
+    match client.post(&normalized_url).json(&payload).send().await {
         Ok(response) => {
             let status = response.status();
             let response_text = response
@@ -129,24 +141,29 @@ async fn send_registration_request(
                     true
                 }
                 reqwest::StatusCode::NOT_FOUND => {
-                    error!("Registration failed: Bad URL (404 Not Found) for {}. Server response: {}", registry_url, response_text);
+                    error!("Registration failed: Bad URL (404 Not Found) for {}. Server response: {}", normalized_url, response_text);
                     false
                 }
                 reqwest::StatusCode::INTERNAL_SERVER_ERROR => {
-                    error!("Registration failed: Server error (500) at {}. Server response: {}", registry_url, response_text);
+                    error!("Registration failed: Server error (500) at {}. Server response: {}", normalized_url, response_text);
                     false
                 }
                 _ => {
                     warn!(
                         "Registration attempt to {} returned unexpected status: {}. Server response: {}",
-                        registry_url, status, response_text
+                        normalized_url, status, response_text
                     );
                     false
                 }
             }
         }
         Err(e) => {
-            error!("Failed to send registration request to {}: {}", registry_url, e);
+            error!("Failed to send registration request to {}: {}", normalized_url, e);
+            error!("Error details - is_timeout: {}, is_connect: {}, is_request: {}",
+                e.is_timeout(), e.is_connect(), e.is_request());
+            if let Some(url_err) = e.url() {
+                error!("URL that caused the error: {}", url_err);
+            }
             false
         }
     }
