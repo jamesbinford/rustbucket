@@ -2,62 +2,74 @@ mod handler;
 mod prelude;
 mod chatgpt;
 mod registration;
+mod protocols;
+mod s3_logger;
 
 use crate::prelude::*;
 use tracing::{info, error};
 use tracing_subscriber::EnvFilter;
 use tracing_appender::rolling;
-use handler::handle_client;
 use chatgpt::ChatGPT;
+use protocols::{ProtocolHandler, LlmEscalationConfig};
+use protocols::ssh::SshHandler;
+use protocols::http::HttpHandler;
+use protocols::ftp::FtpHandler;
+use protocols::smtp::SmtpHandler;
+use s3_logger::S3Logger;
+use rand::distributions::Alphanumeric;
+use rand::Rng;
 
 
 
 async fn start_listener(addr: &str) -> tokio::io::Result<()> {
-    let listener = TcpListener::bind(addr).await?;    
+    let listener = TcpListener::bind(addr).await?;
     // Retrieve the actual address and port the listener is bound to
     let listener_addr = listener.local_addr()?;
     println!("Listening on {}", listener_addr);
     // Instantiate ChatGPT
     let chatgpt = ChatGPT::new().unwrap();
-    
+
+    // Create LLM escalation config
+    let llm_config = LlmEscalationConfig::default();
+
     loop {
         match listener.accept().await {
             Ok((stream, client_addr)) => {
-                let port = client_addr.port();
-                println!("New connection on {}: {}", client_addr, client_addr);
+                println!("New connection on {} from {}", listener_addr, client_addr);
                 // Spawn a new task to handle the connection asynchronously
                 let chatgpt = chatgpt.clone();
+                let llm_config = llm_config.clone();
+
                 task::spawn(async move {
-                    match listener_addr.port() {                        
+                    match listener_addr.port() {
+                        22 => {
+                            // SSH honeypot
+                            info!("Actor attempted to connect to port 22 - SSH");
+                            let mut handler = SshHandler::new(chatgpt, llm_config);
+                            handler.handle_connection(stream).await;
+                        }
                         25 => {
-                            // Handle connection for port 25
+                            // SMTP honeypot
                             info!("Actor attempted to connect to port 25 - SMTP");
-                            //@todo: Implement a more realistic SMTP response and don't send this message to ChatGPT
-                            let message = "220 mail.example.com ESMTP Postfix (Ubuntu)".to_string();
-                            info!("Actor input message: {}", message);
-                            handle_client(stream, message, &chatgpt).await;
+                            let mut handler = SmtpHandler::new(chatgpt, llm_config);
+                            handler.handle_connection(stream).await;
                         }
                         80 => {
-                            // Handle connection for port 80
+                            // HTTP honeypot
                             info!("Actor attempted to connect to port 80 - HTTP");
-                            //@todo: Implement a more realistic HTTP response and don't send this message to ChatGPT
-                            let message = "GET / HTTP/1.1\nHost: example.com".to_string();
-                            info!("Actor input message: {}", message);
-                            handle_client(stream, message, &chatgpt).await;
+                            let mut handler = HttpHandler::new(chatgpt, llm_config);
+                            handler.handle_connection(stream).await;
                         }
                         21 => {
-                            // Handle connection for port 21
+                            // FTP honeypot
                             info!("Actor attempted to connect to port 21 - FTP");
-                            //@todo: Implement a more realistic FTP response and don't send this message to ChatGPT
-                            let message = "220 (vsFTPd 3.0.3)".to_string();
-                            info!("Actor input message: {}", message);
-                            handle_client(stream, message, &chatgpt).await;
+                            let mut handler = FtpHandler::new(chatgpt, llm_config);
+                            handler.handle_connection(stream).await;
                         }
                         _ => {
                             // We know our Security Groups are misconfigured if we hit this message.
                             // Open Security Groups should map 1:1 with the ports in this match statement.
-                            error!("Actor connected to an unexpected port.");
-                            println!("Unexpected port: {}", port);
+                            error!("Actor connected to an unexpected port: {}", listener_addr.port());
                         }
                     }
                 });
@@ -82,12 +94,31 @@ async fn main() -> tokio::io::Result<()> {
         .init();
     info!("Tracing initialized");
 
+    // Generate instance name for this Rustbucket
+    let instance_name = generate_instance_name();
+    info!("Instance name: {}", instance_name);
+
+    // Initialize S3 logger
+    match S3Logger::new(instance_name.clone()).await {
+        Ok(s3_logger) => {
+            if s3_logger.is_enabled() {
+                info!("S3 logging is enabled");
+                s3_logger.start_background_uploader().await;
+            } else {
+                info!("S3 logging is disabled");
+            }
+        }
+        Err(e) => {
+            error!("Failed to initialize S3 logger: {}. Continuing without S3 logging.", e);
+        }
+    }
+
     // Register this instance (optional)
-    // @todo Define what happens if registration has already happened. 
+    // @todo Define what happens if registration has already happened.
     registration::register_instance().await;
 
     // Create tasks for each listener on different ports
-    let ports = vec!["0.0.0.0:25", "0.0.0.0:23", "0.0.0.0:21", "0.0.0.0:80"];
+    let ports = vec!["0.0.0.0:22", "0.0.0.0:25", "0.0.0.0:21", "0.0.0.0:80"];
 
     let mut handles = vec![];
 
@@ -110,4 +141,14 @@ async fn main() -> tokio::io::Result<()> {
     // This point should never be reached unless all listeners fail
     error!("All listeners have stopped. This should not happen.");
     Ok(())
+}
+
+/// Generate a unique instance name for this Rustbucket
+fn generate_instance_name() -> String {
+    let random_suffix: String = rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(8)
+        .map(char::from)
+        .collect();
+    format!("rustbucket-{}", random_suffix)
 }

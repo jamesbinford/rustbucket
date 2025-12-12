@@ -1,7 +1,7 @@
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
-use config::{Config, File};
+use config::{Config, File, FileFormat};
 use crate::prelude::*;
 use crate::handler::ChatService; // Import the new trait
 
@@ -58,11 +58,10 @@ impl ChatGPT {
 		Self::from_config(Self::CONFIG_FILE)
 	}
 	
-	pub fn from_config(_config_file: &str) -> Result<ChatGPT, Box<dyn Error>> {
-		// Load configuration from the specified config file
+	pub fn from_config(config_file: &str) -> Result<ChatGPT, Box<dyn Error>> {
 		// Load configuration from the specified config file
 		let settings = Config::builder()
-			.add_source(File::with_name(Self::CONFIG_FILE)) // Config file is required
+			.add_source(File::from(std::path::Path::new(config_file)).format(FileFormat::Toml))
 			.build()?;
 
 		let llm_config_from_file: Option<OpenAIConfig> = settings.get("llm").ok();
@@ -159,3 +158,185 @@ impl ChatService for ChatGPT {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env;
+    use std::fs;
+    use tempfile::NamedTempFile;
+    use std::io::Write;
+
+    #[test]
+    fn test_static_messages_struct() {
+        let messages = StaticMessages {
+            message1: "Message 1".to_string(),
+            message2: "Message 2".to_string(),
+        };
+
+        assert_eq!(messages.message1, "Message 1");
+        assert_eq!(messages.message2, "Message 2");
+    }
+
+    #[test]
+    fn test_openai_config_struct() {
+        let messages = StaticMessages {
+            message1: "You are a server".to_string(),
+            message2: "Respond as a server".to_string(),
+        };
+
+        let config = OpenAIConfig {
+            static_messages: messages,
+        };
+
+        assert_eq!(config.static_messages.message1, "You are a server");
+        assert_eq!(config.static_messages.message2, "Respond as a server");
+    }
+
+    #[test]
+    fn test_chatgpt_request_serialization() {
+        let messages = vec![
+            Message {
+                role: "system",
+                content: "You are a helper",
+            },
+            Message {
+                role: "user",
+                content: "Hello",
+            },
+        ];
+
+        let request = ChatGPTRequest {
+            model: "gpt-3.5-turbo",
+            messages,
+        };
+
+        let json = serde_json::to_string(&request).unwrap();
+        assert!(json.contains("gpt-3.5-turbo"));
+        assert!(json.contains("system"));
+        assert!(json.contains("user"));
+        assert!(json.contains("You are a helper"));
+        assert!(json.contains("Hello"));
+    }
+
+    #[test]
+    fn test_chatgpt_response_deserialization() {
+        let json = r#"{
+            "choices": [
+                {
+                    "message": {
+                        "content": "Test response"
+                    }
+                }
+            ]
+        }"#;
+
+        let response: ChatGPTResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(response.choices[0].message.content, "Test response");
+    }
+
+    #[test]
+    fn test_from_config_missing_api_key() {
+        // Create a temporary config file
+        let mut temp_file = NamedTempFile::new().unwrap();
+        writeln!(temp_file, "[llm]").unwrap();
+        writeln!(temp_file, "[llm.static_messages]").unwrap();
+        writeln!(temp_file, "message1 = \"Test message 1\"").unwrap();
+        writeln!(temp_file, "message2 = \"Test message 2\"").unwrap();
+        temp_file.flush().unwrap();
+
+        // Ensure CHATGPT_API_KEY is not set
+        env::remove_var("CHATGPT_API_KEY");
+
+        let result = ChatGPT::from_config(temp_file.path().to_str().unwrap());
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("ChatGPT API key"));
+    }
+
+    #[test]
+    fn test_from_config_missing_static_messages() {
+        // Create a temporary config file without static messages
+        let mut temp_file = NamedTempFile::new().unwrap();
+        writeln!(temp_file, "[other]").unwrap();
+        writeln!(temp_file, "key = \"value\"").unwrap();
+        temp_file.flush().unwrap();
+
+        // Set API key
+        env::set_var("CHATGPT_API_KEY", "test_key");
+
+        let result = ChatGPT::from_config(temp_file.path().to_str().unwrap());
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Static messages"));
+
+        // Clean up
+        env::remove_var("CHATGPT_API_KEY");
+    }
+
+    #[test]
+    fn test_from_config_success() {
+        // Create a proper config file
+        let mut temp_file = NamedTempFile::new().unwrap();
+        writeln!(temp_file, "[llm]").unwrap();
+        writeln!(temp_file, "[llm.static_messages]").unwrap();
+        writeln!(temp_file, "message1 = \"You are an Ubuntu Server.\"").unwrap();
+        writeln!(temp_file, "message2 = \"Respond as an Ubuntu server would.\"").unwrap();
+        temp_file.flush().unwrap();
+
+        // Set API key
+        env::set_var("CHATGPT_API_KEY", "sk-test123456789");
+
+        let result = ChatGPT::from_config(temp_file.path().to_str().unwrap());
+        assert!(result.is_ok());
+
+        let chatgpt = result.unwrap();
+        assert_eq!(chatgpt.api_key, "sk-test123456789");
+        assert_eq!(chatgpt.static_messages.message1, "You are an Ubuntu Server.");
+        assert_eq!(chatgpt.static_messages.message2, "Respond as an Ubuntu server would.");
+
+        // Clean up
+        env::remove_var("CHATGPT_API_KEY");
+    }
+
+    #[test]
+    fn test_chatgpt_clone() {
+        env::set_var("CHATGPT_API_KEY", "test_key");
+
+        let mut temp_file = NamedTempFile::new().unwrap();
+        writeln!(temp_file, "[llm]").unwrap();
+        writeln!(temp_file, "[llm.static_messages]").unwrap();
+        writeln!(temp_file, "message1 = \"Message 1\"").unwrap();
+        writeln!(temp_file, "message2 = \"Message 2\"").unwrap();
+        temp_file.flush().unwrap();
+
+        let chatgpt = ChatGPT::from_config(temp_file.path().to_str().unwrap()).unwrap();
+        let cloned = chatgpt.clone();
+
+        assert_eq!(chatgpt.api_key, cloned.api_key);
+        assert_eq!(chatgpt.static_messages.message1, cloned.static_messages.message1);
+        assert_eq!(chatgpt.static_messages.message2, cloned.static_messages.message2);
+
+        env::remove_var("CHATGPT_API_KEY");
+    }
+
+    #[tokio::test]
+    async fn test_send_message_request_structure() {
+        env::set_var("CHATGPT_API_KEY", "sk-test123");
+
+        let mut temp_file = NamedTempFile::new().unwrap();
+        writeln!(temp_file, "[llm]").unwrap();
+        writeln!(temp_file, "[llm.static_messages]").unwrap();
+        writeln!(temp_file, "message1 = \"System msg 1\"").unwrap();
+        writeln!(temp_file, "message2 = \"System msg 2\"").unwrap();
+        temp_file.flush().unwrap();
+
+        let chatgpt = ChatGPT::from_config(temp_file.path().to_str().unwrap()).unwrap();
+
+        // We can't easily test the actual API call without mocking,
+        // but we can verify the struct was created correctly
+        assert_eq!(chatgpt.static_messages.message1, "System msg 1");
+        assert_eq!(chatgpt.static_messages.message2, "System msg 2");
+
+        env::remove_var("CHATGPT_API_KEY");
+    }
+}
+

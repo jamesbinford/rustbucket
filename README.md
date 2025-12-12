@@ -11,10 +11,14 @@ You can also modify the prompts yourself in Config.toml to make ChatGPT behavior
 
 ## Features
 
-- **Protocol Emulation**: Mimics popular services such as SMTP, HTTP, and FTP.
+- **Protocol Emulation**: Mimics popular services such as SSH, SMTP, HTTP, and FTP with intelligent response generation.
+- **LLM Integration**: Built-in ChatGPT integration for dynamic, realistic responses to attacker commands.
+- **Smart LLM Escalation**: Automatically escalates unknown or suspicious commands to ChatGPT while handling known commands natively to minimize API costs.
 - **Configurable Ports**: Easily configure which ports to monitor and the services to emulate through a TOML configuration file.
-- **Logging**: Captures all interactions, providing valuable insights into potential attacks.
-- **Concurrency**: Utilizes Rust’s async capabilities for handling multiple simultaneous connections efficiently.
+- **S3 Log Upload**: Automatically upload daily rotated log files to AWS S3 with configurable retention and cleanup.
+- **Structured Logging**: Captures all interactions with daily log rotation, providing valuable insights into potential attacks.
+- **Concurrency**: Utilizes Rust's async capabilities for handling multiple simultaneous connections efficiently.
+- **Registry Integration**: Optional registration with a central registry for managing multiple honeypot instances.
 
 ### Prerequisites
 
@@ -39,3 +43,251 @@ You can also modify the prompts yourself in Config.toml to make ChatGPT behavior
    docker build -t rustbucket .
    ```
 5. Make sure your OpenAI API key is set in a CHATGPT_API_KEY environment variable.
+
+## Configuration
+
+Rustbucket uses a `Config.toml` file for configuration. Here are the key sections:
+
+### General Settings
+
+```toml
+[general]
+log_level = "info"
+log_directory = "./logs"
+verbose = true
+```
+
+### Port Configuration
+
+Enable or disable specific protocol handlers:
+
+```toml
+[ports]
+ssh = true    # Port 22 - SSH honeypot
+http = true   # Port 80 - HTTP honeypot
+ftp = true    # Port 21 - FTP honeypot
+smtp = true   # Port 25 - SMTP honeypot
+dns = false   # Port 53 - DNS honeypot (not yet implemented)
+sms = false   # SMS honeypot (not yet implemented)
+```
+
+### LLM Configuration
+
+Configure ChatGPT prompts and behavior:
+
+```toml
+[llm]
+[llm.static_messages]
+message1 = "You are an Ubuntu 20.04 server..."
+message2 = "Respond exactly as a real Ubuntu server would..."
+```
+
+Customize these messages to control how ChatGPT responds to attackers.
+
+### S3 Log Upload
+
+Rustbucket can automatically upload rotated log files to AWS S3 for centralized log management across multiple honeypot instances.
+
+#### Configuration Options
+
+```toml
+[s3_logging]
+enabled = false
+bucket_name = ""  # e.g., "my-honeypot-logs"
+region = "us-east-1"
+prefix = ""  # Optional: organize logs by prefix, e.g., "production" or "honeypot-logs"
+upload_interval_hours = 24  # Check for logs to upload every 24 hours
+retry_interval_hours = 24   # Retry failed uploads after 24 hours
+delete_after_upload = false # Set to true to delete local logs after successful S3 upload
+```
+
+#### Environment Variables
+
+You can also configure S3 logging via environment variables (overrides Config.toml):
+
+```bash
+export S3_LOGGING_ENABLED=true
+export S3_BUCKET_NAME=my-honeypot-logs
+export S3_REGION=us-east-1
+export S3_PREFIX=rustbucket-logs  # Optional
+export S3_DELETE_AFTER_UPLOAD=true  # Optional
+```
+
+#### AWS Credentials
+
+Rustbucket uses the standard AWS SDK credential chain. Configure credentials using one of these methods:
+
+1. **IAM Role** (recommended for EC2/ECS):
+   - Attach an IAM role with S3 write permissions to your instance
+   - No additional configuration needed
+
+2. **Environment Variables**:
+   ```bash
+   export AWS_ACCESS_KEY_ID=your_access_key
+   export AWS_SECRET_ACCESS_KEY=your_secret_key
+   ```
+
+3. **AWS Credentials File** (`~/.aws/credentials`):
+   ```ini
+   [default]
+   aws_access_key_id = your_access_key
+   aws_secret_access_key = your_secret_key
+   ```
+
+#### Required IAM Permissions
+
+Your AWS credentials need the following S3 permissions:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:PutObjectAcl"
+      ],
+      "Resource": "arn:aws:s3:::your-bucket-name/*"
+    }
+  ]
+}
+```
+
+#### How It Works
+
+1. Rustbucket rotates log files daily (e.g., `rustbucket.log.2025-12-12`)
+2. The S3 uploader runs every 24 hours (configurable)
+3. It uploads rotated log files (older than 5 minutes) to S3
+4. Files are organized by instance: `s3://bucket/[prefix/]instance-name/rustbucket.log.2025-12-12`
+5. Each Rustbucket instance generates a unique name for multi-instance deployments
+6. Optionally deletes local files after successful upload to save disk space
+
+### Registry Integration
+
+Rustbucket can optionally register with a central registry server:
+
+```toml
+[registration]
+rustbucket_registry_url = "https://your-registry.example.com"
+```
+
+Or via environment variable:
+```bash
+export RUSTBUCKET_REGISTRY_URL=https://your-registry.example.com
+```
+
+Registration sends system information (IP, OS, resource usage) to help manage multiple honeypot instances.
+
+## Usage
+
+### Running Rustbucket
+
+```bash
+# Set your ChatGPT API key
+export CHATGPT_API_KEY=sk-your-api-key-here
+
+# Run the honeypot
+cargo run --release
+```
+
+Or with Docker:
+
+```bash
+docker run -e CHATGPT_API_KEY=sk-your-api-key-here \
+  -p 22:22 -p 25:25 -p 80:80 -p 21:21 \
+  -v ./logs:/app/logs \
+  rustbucket
+```
+
+### Running with S3 Logging
+
+```bash
+# Configure S3 via environment variables
+export CHATGPT_API_KEY=sk-your-api-key-here
+export S3_LOGGING_ENABLED=true
+export S3_BUCKET_NAME=my-honeypot-logs
+export S3_REGION=us-east-1
+
+# With IAM role (EC2/ECS - no credentials needed)
+cargo run --release
+
+# Or with AWS credentials
+export AWS_ACCESS_KEY_ID=your_access_key
+export AWS_SECRET_ACCESS_KEY=your_secret_key
+cargo run --release
+```
+
+### Viewing Logs
+
+Logs are stored in the `logs/` directory (configurable):
+
+```bash
+# View current log
+tail -f logs/rustbucket.log
+
+# View specific day's log
+cat logs/rustbucket.log.2025-12-12
+```
+
+If S3 logging is enabled, rotated logs are automatically uploaded to your S3 bucket.
+
+## Architecture
+
+### Smart LLM Escalation
+
+Rustbucket minimizes ChatGPT API costs by intelligently deciding when to escalate commands to the LLM:
+
+1. **Known Commands**: Standard protocol commands (e.g., `ls`, `pwd`, `USER`, `HELO`) are handled natively with pre-defined responses
+2. **Unknown Commands**: Suspicious or unusual commands are escalated to ChatGPT for dynamic responses
+3. **Bot Detection**: Rapid-fire commands or patterns suggesting automated scanning skip LLM escalation to save costs
+4. **Configurable Thresholds**: Set escalation thresholds and patterns in `Config.toml`
+
+This approach provides realistic interactions while keeping API costs minimal for bulk automated scanning.
+
+### Protocol Handlers
+
+Each protocol handler (SSH, FTP, SMTP, HTTP) implements:
+
+- **Command Recognition**: Identifies and validates protocol-specific commands
+- **Native Responses**: Returns appropriate responses for known commands
+- **LLM Integration**: Escalates unknown/suspicious commands to ChatGPT
+- **Session State**: Tracks session information for realistic interactions
+
+## Development
+
+### Running Tests
+
+```bash
+# Run all tests
+cargo test
+
+# Run tests with output
+cargo test -- --nocapture
+
+# Run tests serially (avoid env var conflicts)
+cargo test -- --test-threads=1
+
+# Generate coverage report
+cargo tarpaulin --out Html
+```
+
+### Test Coverage
+
+Current test coverage: **40.54%** (375/925 lines)
+
+- Protocol handlers: Unit tests for command parsing and response generation
+- LLM escalation logic: 97.5% coverage
+- Configuration loading: Comprehensive tests with mocks
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## License
+
+This project is open source and available under the MIT License.
+
+## Security Note
+
+Rustbucket is designed to be exposed to the internet and receive malicious traffic. Run it in an isolated environment (VM, container, or dedicated server) with appropriate network segmentation. Do not run on systems with sensitive data or production infrastructure.
