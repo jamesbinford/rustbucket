@@ -5,6 +5,7 @@ This guide covers various deployment scenarios for Rustbucket honeypot.
 ## Table of Contents
 - [Quick Start with Docker Compose](#quick-start-with-docker-compose)
 - [Docker Deployment](#docker-deployment)
+- [Multi-Instance Deployment](#multi-instance-deployment)
 - [AWS EC2 Deployment](#aws-ec2-deployment)
 - [Kubernetes Deployment](#kubernetes-deployment)
 - [Pre-built Images](#pre-built-images)
@@ -83,6 +84,42 @@ docker run -d \
   -v rustbucket-logs:/app/logs \
   ghcr.io/jamesbinford/rustbucket:latest
 ```
+
+## Multi-Instance Deployment
+
+Deploy multiple Rustbucket instances simultaneously for service isolation, redundancy, or geographic distribution.
+
+### Quick Multi-Instance Deploy
+
+```bash
+# Deploy 4 specialized instances (SSH, HTTP, SMTP, FTP)
+docker-compose -f docker-compose.multi.yml up -d
+
+# Check status
+docker-compose -f docker-compose.multi.yml ps
+
+# View logs from all instances
+docker-compose -f docker-compose.multi.yml logs -f
+```
+
+### Benefits
+
+- **Service Isolation**: Separate logs for each protocol (SSH, HTTP, FTP, SMTP)
+- **S3 Organization**: Each instance uploads to unique S3 prefix
+- **Resource Control**: Independent resource limits per instance
+- **Selective Deployment**: Run only the protocols you need
+
+### Example S3 Structure
+
+```
+s3://your-bucket/
+├── ssh-honeypot/rustbucket-ssh/rustbucket.log.2025-12-12
+├── http-honeypot/rustbucket-http/rustbucket.log.2025-12-12
+├── smtp-honeypot/rustbucket-smtp/rustbucket.log.2025-12-12
+└── ftp-honeypot/rustbucket-ftp/rustbucket.log.2025-12-12
+```
+
+For complete multi-instance documentation including scaling, monitoring, and advanced patterns, see **[MULTI-INSTANCE.md](MULTI-INSTANCE.md)**.
 
 ## AWS EC2 Deployment
 

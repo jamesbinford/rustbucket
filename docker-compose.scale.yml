@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  # Scalable Rustbucket instance
+  # Use this for deploying multiple identical instances
+  rustbucket:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: rustbucket:latest
+    restart: unless-stopped
+
+    environment:
+      - CHATGPT_API_KEY=${CHATGPT_API_KEY}
+      - S3_LOGGING_ENABLED=${S3_LOGGING_ENABLED:-false}
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME:-}
+      - S3_REGION=${S3_REGION:-us-east-1}
+      - S3_PREFIX=${S3_PREFIX:-rustbucket}
+      - S3_DELETE_AFTER_UPLOAD=${S3_DELETE_AFTER_UPLOAD:-false}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+
+    # Note: Ports are mapped dynamically when scaling
+    # Docker will assign random host ports
+    # Access via: docker ps to see port mappings
+    ports:
+      - "22"    # SSH - random host port
+      - "21"    # FTP - random host port
+      - "25"    # SMTP - random host port
+      - "80"    # HTTP - random host port
+
+    cap_add:
+      - NET_BIND_SERVICE
+
+    volumes:
+      # Each instance gets its own named volume
+      - type: volume
+        source: rustbucket-logs
+        target: /app/logs
+
+    healthcheck:
+      test: ["CMD", "pgrep", "-x", "rustbucket"]
+      interval: 30s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+
+    deploy:
+      replicas: 3  # Number of instances
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+
+volumes:
+  rustbucket-logs:
+    driver: local
