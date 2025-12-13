@@ -1,0 +1,20 @@
+# AWS Configuration
+aws_region  = "us-east-1"
+environment = "prod"
+
+# EC2 Instance Configuration
+# Options: t3.micro (1 vCPU, 1GB), t3.small (2 vCPU, 2GB), t3.medium (2 vCPU, 4GB)
+instance_type = "t3.small"
+
+# ChatGPT API Key (Required)
+# Get yours from: https://platform.openai.com/api-keys
+chatgpt_api_key = "sk-your-api-key-here"
+
+# S3 Bucket Configuration
+# Must be globally unique
+s3_bucket_name = "rustbucket-logs-your-unique-name"
+
+# S3 Logging Settings
+enable_s3_logging  = true
+delete_after_upload = true   # Delete local logs after uploading to S3
+log_retention_days = 90      # Keep logs in S3 for 90 days

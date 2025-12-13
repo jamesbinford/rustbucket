@@ -1,0 +1,329 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Rustbucket Honeypot on ECS Fargate with S3 Logging'
+
+Parameters:
+  ChatGPTAPIKey:
+    Type: String
+    NoEcho: true
+    Description: 'OpenAI ChatGPT API Key'
+    MinLength: 20
+
+  S3BucketName:
+    Type: String
+    Description: 'S3 Bucket name for log storage (must be globally unique)'
+    AllowedPattern: '^[a-z0-9][a-z0-9-]*[a-z0-9]$'
+    MinLength: 3
+    MaxLength: 63
+
+  EnableS3Logging:
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: 'Enable S3 log uploading'
+
+  DeleteAfterUpload:
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: 'Delete local logs after S3 upload'
+
+  FargateTaskCPU:
+    Type: String
+    Default: '512'
+    AllowedValues:
+      - '256'  # 0.25 vCPU
+      - '512'  # 0.5 vCPU
+      - '1024' # 1 vCPU
+      - '2048' # 2 vCPU
+    Description: 'Fargate task CPU units'
+
+  FargateTaskMemory:
+    Type: String
+    Default: '1024'
+    AllowedValues:
+      - '512'   # 0.5 GB
+      - '1024'  # 1 GB
+      - '2048'  # 2 GB
+      - '4096'  # 4 GB
+    Description: 'Fargate task memory in MB'
+
+Resources:
+  # VPC
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: rustbucket-vpc
+
+  # Internet Gateway
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: rustbucket-igw
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # Public Subnet
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: rustbucket-public-subnet
+
+  # Route Table
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: rustbucket-public-rt
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  SubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  # Security Group
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: rustbucket-sg
+      GroupDescription: 'Security group for Rustbucket honeypot'
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+          Description: 'SSH Honeypot'
+        - IpProtocol: tcp
+          FromPort: 21
+          ToPort: 21
+          CidrIp: 0.0.0.0/0
+          Description: 'FTP Honeypot'
+        - IpProtocol: tcp
+          FromPort: 25
+          ToPort: 25
+          CidrIp: 0.0.0.0/0
+          Description: 'SMTP Honeypot'
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: 'HTTP Honeypot'
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: 'Allow all outbound'
+      Tags:
+        - Key: Name
+          Value: rustbucket-sg
+
+  # S3 Bucket
+  LogsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref S3BucketName
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldLogs
+            Status: Enabled
+            ExpirationInDays: 90
+            NoncurrentVersionExpirationInDays: 7
+      Tags:
+        - Key: Name
+          Value: rustbucket-logs
+
+  # IAM Role for ECS Task
+  TaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy'
+      Tags:
+        - Key: Name
+          Value: rustbucket-execution-role
+
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 's3:PutObject'
+                  - 's3:PutObjectAcl'
+                Resource: !Sub '${LogsBucket.Arn}/*'
+      Tags:
+        - Key: Name
+          Value: rustbucket-task-role
+
+  # ECS Cluster
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: rustbucket-cluster
+      Tags:
+        - Key: Name
+          Value: rustbucket-cluster
+
+  # CloudWatch Log Group
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /ecs/rustbucket
+      RetentionInDays: 7
+
+  # ECS Task Definition
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: rustbucket
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: !Ref FargateTaskCPU
+      Memory: !Ref FargateTaskMemory
+      ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ContainerDefinitions:
+        - Name: rustbucket
+          Image: ghcr.io/jamesbinford/rustbucket:latest
+          Essential: true
+          PortMappings:
+            - ContainerPort: 22
+              Protocol: tcp
+            - ContainerPort: 21
+              Protocol: tcp
+            - ContainerPort: 25
+              Protocol: tcp
+            - ContainerPort: 80
+              Protocol: tcp
+          Environment:
+            - Name: CHATGPT_API_KEY
+              Value: !Ref ChatGPTAPIKey
+            - Name: S3_LOGGING_ENABLED
+              Value: !Ref EnableS3Logging
+            - Name: S3_BUCKET_NAME
+              Value: !Ref S3BucketName
+            - Name: S3_REGION
+              Value: !Ref AWS::Region
+            - Name: S3_DELETE_AFTER_UPLOAD
+              Value: !Ref DeleteAfterUpload
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: rustbucket
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - pgrep -x rustbucket || exit 1
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 60
+
+  # ECS Service
+  Service:
+    Type: AWS::ECS::Service
+    DependsOn: AttachGateway
+    Properties:
+      ServiceName: rustbucket-service
+      Cluster: !Ref ECSCluster
+      TaskDefinition: !Ref TaskDefinition
+      DesiredCount: 1
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets:
+            - !Ref PublicSubnet
+          SecurityGroups:
+            - !Ref SecurityGroup
+      Tags:
+        - Key: Name
+          Value: rustbucket-service
+
+Outputs:
+  ClusterName:
+    Description: 'ECS Cluster Name'
+    Value: !Ref ECSCluster
+
+  ServiceName:
+    Description: 'ECS Service Name'
+    Value: !GetAtt Service.Name
+
+  S3BucketName:
+    Description: 'S3 Bucket for logs'
+    Value: !Ref LogsBucket
+
+  CloudWatchLogGroup:
+    Description: 'CloudWatch Log Group'
+    Value: !Ref LogGroup
+
+  ViewLogsCommand:
+    Description: 'Command to view logs in S3'
+    Value: !Sub 'aws s3 ls s3://${LogsBucket}/ --recursive'
+
+  ViewECSLogsCommand:
+    Description: 'Command to view ECS logs'
+    Value: !Sub 'aws logs tail /ecs/rustbucket --follow'
+
+  GetPublicIPCommand:
+    Description: 'Command to get the public IP of the Fargate task'
+    Value: !Sub |
+      aws ecs describe-tasks \
+        --cluster ${ECSCluster} \
+        --tasks $(aws ecs list-tasks --cluster ${ECSCluster} --service-name ${Service.Name} --query 'taskArns[0]' --output text) \
+        --query 'tasks[0].attachments[0].details[?name==`networkInterfaceId`].value' --output text | \
+        xargs -I {} aws ec2 describe-network-interfaces --network-interface-ids {} --query 'NetworkInterfaces[0].Association.PublicIp' --output text
