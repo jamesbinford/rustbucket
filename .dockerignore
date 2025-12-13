@@ -1,0 +1,39 @@
+# Rust build artifacts
+target/
+**/*.rs.bk
+*.pdb
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+logs/
+*.log
+
+# Environment and secrets
+.env
+*.key
+token.txt
+
+# Documentation
+*.md
+docs/
+
+# CI/CD
+.github/
+
+# Test coverage
+tarpaulin-report.html
+cobertura.xml
+
+# OS
+.DS_Store
+Thumbs.db

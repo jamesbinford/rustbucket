@@ -1,28 +1,69 @@
 # Stage 1: Build the Rust application
 FROM rust:latest AS builder
 
+# Create a non-root user for building
+RUN useradd -m -u 1000 rustbuilder
+
 WORKDIR /app
-COPY . .
 
-# Build the project with Cargo in release mode
-RUN cargo build --release
+# Copy only dependency files first for better layer caching
+COPY Cargo.toml Cargo.lock ./
 
-# Stage 2: Create a lightweight container with the binary
+# Create a dummy main.rs to build dependencies
+RUN mkdir src && \
+    echo "fn main() {}" > src/main.rs && \
+    cargo build --release && \
+    rm -rf src
+
+# Now copy the actual source code
+COPY --chown=rustbuilder:rustbuilder . .
+
+# Build the actual project
+RUN cargo build --release && \
+    strip target/release/rustbucket
+
+# Stage 2: Create a lightweight runtime container
 FROM debian:bookworm-slim
+
+# Install runtime dependencies
 RUN apt-get update && apt-get install -y \
     libssl3 \
     ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-EXPOSE 25
-EXPOSE 23
-EXPOSE 21
-EXPOSE 80
-EXPOSE 22
-EXPOSE 53
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
-# Copy the Rust executable from the builder stage
+# Create non-root user for running the application
+RUN useradd -m -u 1000 -s /bin/bash rustbucket
+
+# Set working directory
+WORKDIR /app
+
+# Create logs directory with proper permissions
+RUN mkdir -p /app/logs && chown rustbucket:rustbucket /app/logs
+
+# Copy the binary from builder stage
 COPY --from=builder /app/target/release/rustbucket /usr/local/bin/rustbucket
-COPY Config.toml.example ./Config.toml
 
-# Set the entrypoint to the Rust executable
+# Copy config file
+COPY --chown=rustbucket:rustbucket Config.toml.example ./Config.toml
+
+# Switch to non-root user
+USER rustbucket
+
+# Expose honeypot ports
+EXPOSE 22/tcp
+EXPOSE 21/tcp
+EXPOSE 25/tcp
+EXPOSE 80/tcp
+EXPOSE 53/tcp
+EXPOSE 53/udp
+
+# Create volume for logs (persists across container restarts)
+VOLUME ["/app/logs"]
+
+# Add healthcheck (checks if process is running)
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD pgrep -x rustbucket || exit 1
+
+# Set the entrypoint
 ENTRYPOINT ["/usr/local/bin/rustbucket"]
