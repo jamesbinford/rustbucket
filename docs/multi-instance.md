@@ -25,7 +25,7 @@ Deploy dedicated instances for each protocol with separate logs and S3 prefixes.
 
 ### Configuration
 
-**File**: `docker-compose.multi.yml`
+**File**: `deploy/docker/docker-compose.multi.yml`
 
 Each instance:
 - Runs on its designated port (22, 25, 80, 21)
@@ -37,26 +37,26 @@ Each instance:
 
 ```bash
 # Start all 4 instances (SSH, HTTP, SMTP, FTP)
-docker-compose -f docker-compose.multi.yml up -d
+docker-compose -f deploy/docker/docker-compose.multi.yml up -d
 
 # Check status
-docker-compose -f docker-compose.multi.yml ps
+docker-compose -f deploy/docker/docker-compose.multi.yml ps
 
 # View logs from all instances
-docker-compose -f docker-compose.multi.yml logs -f
+docker-compose -f deploy/docker/docker-compose.multi.yml logs -f
 
 # View logs from specific instance
-docker-compose -f docker-compose.multi.yml logs -f rustbucket-ssh
+docker-compose -f deploy/docker/docker-compose.multi.yml logs -f rustbucket-ssh
 ```
 
 ### Deploy Specific Instances
 
 ```bash
 # Deploy only SSH and HTTP honeypots
-docker-compose -f docker-compose.multi.yml up -d rustbucket-ssh rustbucket-http
+docker-compose -f deploy/docker/docker-compose.multi.yml up -d rustbucket-ssh rustbucket-http
 
 # Stop FTP honeypot
-docker-compose -f docker-compose.multi.yml stop rustbucket-ftp
+docker-compose -f deploy/docker/docker-compose.multi.yml stop rustbucket-ftp
 ```
 
 ### S3 Organization
@@ -94,7 +94,7 @@ s3://your-bucket/
 You can customize each instance with different configs:
 
 ```yaml
-# In docker-compose.multi.yml
+# In deploy/docker/docker-compose.multi.yml
 rustbucket-ssh:
   volumes:
     - rustbucket-ssh-logs:/app/logs
@@ -112,7 +112,7 @@ Deploy multiple identical instances that Docker Compose will distribute across r
 
 ### Configuration
 
-**File**: `docker-compose.scale.yml`
+**File**: `deploy/docker/docker-compose.scale.yml`
 
 Features:
 - Identical instances with same configuration
@@ -124,16 +124,16 @@ Features:
 
 ```bash
 # Deploy 3 identical instances
-docker-compose -f docker-compose.scale.yml up -d --scale rustbucket=3
+docker-compose -f deploy/docker/docker-compose.scale.yml up -d --scale rustbucket=3
 
 # Scale up to 5 instances
-docker-compose -f docker-compose.scale.yml up -d --scale rustbucket=5
+docker-compose -f deploy/docker/docker-compose.scale.yml up -d --scale rustbucket=5
 
 # Scale down to 2 instances
-docker-compose -f docker-compose.scale.yml up -d --scale rustbucket=2
+docker-compose -f deploy/docker/docker-compose.scale.yml up -d --scale rustbucket=2
 
 # Check which ports were assigned
-docker-compose -f docker-compose.scale.yml ps
+docker-compose -f deploy/docker/docker-compose.scale.yml ps
 ```
 
 ### Port Mappings
@@ -174,32 +174,32 @@ ssh user@localhost -p 32770
 
 ```bash
 # Start all instances
-docker-compose -f docker-compose.multi.yml up -d
+docker-compose -f deploy/docker/docker-compose.multi.yml up -d
 
 # Stop all instances
-docker-compose -f docker-compose.multi.yml down
+docker-compose -f deploy/docker/docker-compose.multi.yml down
 
 # Restart specific instance
-docker-compose -f docker-compose.multi.yml restart rustbucket-ssh
+docker-compose -f deploy/docker/docker-compose.multi.yml restart rustbucket-ssh
 
 # Stop without removing
-docker-compose -f docker-compose.multi.yml stop
+docker-compose -f deploy/docker/docker-compose.multi.yml stop
 ```
 
 ### View Logs
 
 ```bash
 # All instances combined
-docker-compose -f docker-compose.multi.yml logs -f
+docker-compose -f deploy/docker/docker-compose.multi.yml logs -f
 
 # Specific instance
-docker-compose -f docker-compose.multi.yml logs -f rustbucket-http
+docker-compose -f deploy/docker/docker-compose.multi.yml logs -f rustbucket-http
 
 # Last 100 lines from all instances
-docker-compose -f docker-compose.multi.yml logs --tail=100
+docker-compose -f deploy/docker/docker-compose.multi.yml logs --tail=100
 
 # Follow logs from SSH and HTTP only
-docker-compose -f docker-compose.multi.yml logs -f rustbucket-ssh rustbucket-http
+docker-compose -f deploy/docker/docker-compose.multi.yml logs -f rustbucket-ssh rustbucket-http
 ```
 
 ### Health Checks
@@ -228,7 +228,7 @@ docker stats --no-stream --format "table {{.Name}}\t{{.MemUsage}}" | grep rustbu
 
 **Option 1: S3 with Unique Prefixes**
 
-Each instance uploads to a unique S3 prefix (already configured in docker-compose.multi.yml):
+Each instance uploads to a unique S3 prefix (already configured in deploy/docker/docker-compose.multi.yml):
 
 ```bash
 # View all logs in S3
@@ -244,7 +244,7 @@ aws s3 sync s3://your-bucket/ ./logs/
 **Option 2: Log Aggregation with Splunk/ELK**
 
 ```yaml
-# Add to any instance in docker-compose.multi.yml
+# Add to any instance in deploy/docker/docker-compose.multi.yml
 logging:
   driver: "splunk"
   options:
@@ -271,7 +271,7 @@ scrape_configs:
 ### Docker Compose Monitoring Stack
 
 ```yaml
-# Add to docker-compose.multi.yml
+# Add to deploy/docker/docker-compose.multi.yml
   prometheus:
     image: prom/prometheus
     volumes:
@@ -296,11 +296,11 @@ Deploy instances across multiple Docker hosts:
 ```bash
 # On server 1 (us-east-1)
 export DOCKER_HOST=ssh://user@server1
-docker-compose -f docker-compose.multi.yml up -d rustbucket-ssh rustbucket-http
+docker-compose -f deploy/docker/docker-compose.multi.yml up -d rustbucket-ssh rustbucket-http
 
 # On server 2 (eu-west-1)
 export DOCKER_HOST=ssh://user@server2
-docker-compose -f docker-compose.multi.yml up -d rustbucket-smtp rustbucket-ftp
+docker-compose -f deploy/docker/docker-compose.multi.yml up -d rustbucket-smtp rustbucket-ftp
 ```
 
 ### Network Segmentation
@@ -308,7 +308,7 @@ docker-compose -f docker-compose.multi.yml up -d rustbucket-smtp rustbucket-ftp
 Isolate instances on different networks:
 
 ```yaml
-# docker-compose.multi.yml
+# deploy/docker/docker-compose.multi.yml
 networks:
   ssh_net:
   http_net:
@@ -334,10 +334,10 @@ CONNECTIONS=$(docker exec rustbucket-ssh netstat -an | grep ESTABLISHED | wc -l)
 
 if [ $CONNECTIONS -gt 100 ]; then
     # Scale up
-    docker-compose -f docker-compose.scale.yml up -d --scale rustbucket=5
+    docker-compose -f deploy/docker/docker-compose.scale.yml up -d --scale rustbucket=5
 elif [ $CONNECTIONS -lt 20 ]; then
     # Scale down
-    docker-compose -f docker-compose.scale.yml up -d --scale rustbucket=2
+    docker-compose -f deploy/docker/docker-compose.scale.yml up -d --scale rustbucket=2
 fi
 ```
 
@@ -359,14 +359,14 @@ sudo systemctl stop ssh  # For actual SSH on port 22
 
 ```bash
 # Check logs
-docker-compose -f docker-compose.multi.yml logs rustbucket-ssh
+docker-compose -f deploy/docker/docker-compose.multi.yml logs rustbucket-ssh
 
 # Check container status
 docker inspect rustbucket-ssh
 
 # Restart with fresh state
-docker-compose -f docker-compose.multi.yml down
-docker-compose -f docker-compose.multi.yml up -d
+docker-compose -f deploy/docker/docker-compose.multi.yml down
+docker-compose -f deploy/docker/docker-compose.multi.yml up -d
 ```
 
 ### High Memory Usage
@@ -376,9 +376,9 @@ docker-compose -f docker-compose.multi.yml up -d
 docker stats --no-stream --format "table {{.Name}}\t{{.MemUsage}}\t{{.MemPerc}}"
 
 # Restart heavy instance
-docker-compose -f docker-compose.multi.yml restart rustbucket-http
+docker-compose -f deploy/docker/docker-compose.multi.yml restart rustbucket-http
 
-# Adjust memory limits in docker-compose.multi.yml
+# Adjust memory limits in deploy/docker/docker-compose.multi.yml
 ```
 
 ## Best Practices
@@ -395,17 +395,17 @@ docker-compose -f docker-compose.multi.yml restart rustbucket-http
 
 ```bash
 # 1. Configure environment
-cp .env.example .env
+cp deploy/docker/.env.example .env
 nano .env  # Add CHATGPT_API_KEY and S3 settings
 
 # 2. Deploy specialized instances
-docker-compose -f docker-compose.multi.yml up -d
+docker-compose -f deploy/docker/docker-compose.multi.yml up -d
 
 # 3. Verify all running
-docker-compose -f docker-compose.multi.yml ps
+docker-compose -f deploy/docker/docker-compose.multi.yml ps
 
 # 4. Check logs are being written
-docker-compose -f docker-compose.multi.yml logs --tail=20
+docker-compose -f deploy/docker/docker-compose.multi.yml logs --tail=20
 
 # 5. Verify S3 uploads (after 24 hours)
 aws s3 ls s3://your-bucket/ --recursive

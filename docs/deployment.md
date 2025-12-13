@@ -20,16 +20,16 @@ git clone https://github.com/jamesbinford/rustbucket.git
 cd rustbucket
 
 # 2. Copy environment template
-cp .env.example .env
+cp deploy/docker/.env.example .env
 
 # 3. Edit .env and add your ChatGPT API key
 nano .env  # or vim, code, etc.
 
 # 4. Start Rustbucket
-docker-compose up -d
+docker-compose -f deploy/docker/docker-compose.yml up -d
 
 # 5. View logs
-docker-compose logs -f
+docker-compose -f deploy/docker/docker-compose.yml logs -f
 ```
 
 That's it! Rustbucket is now running and listening on ports 22, 21, 25, 80.
@@ -93,13 +93,13 @@ Deploy multiple Rustbucket instances simultaneously for service isolation, redun
 
 ```bash
 # Deploy 4 specialized instances (SSH, HTTP, SMTP, FTP)
-docker-compose -f docker-compose.multi.yml up -d
+docker-compose -f deploy/docker/docker-compose.multi.yml up -d
 
 # Check status
-docker-compose -f docker-compose.multi.yml ps
+docker-compose -f deploy/docker/docker-compose.multi.yml ps
 
 # View logs from all instances
-docker-compose -f docker-compose.multi.yml logs -f
+docker-compose -f deploy/docker/docker-compose.multi.yml logs -f
 ```
 
 ### Benefits
@@ -119,7 +119,7 @@ s3://your-bucket/
 └── ftp-honeypot/rustbucket-ftp/rustbucket.log.2025-12-12
 ```
 
-For complete multi-instance documentation including scaling, monitoring, and advanced patterns, see **[MULTI-INSTANCE.md](MULTI-INSTANCE.md)**.
+For complete multi-instance documentation including scaling, monitoring, and advanced patterns, see **[multi-instance.md](multi-instance.md)**.
 
 ## AWS EC2 Deployment
 

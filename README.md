@@ -16,12 +16,12 @@ Get Rustbucket running in 2 minutes:
 ```bash
 git clone https://github.com/jamesbinford/rustbucket.git
 cd rustbucket
-cp .env.example .env
+cp deploy/docker/.env.example .env
 # Edit .env and add your CHATGPT_API_KEY
-docker-compose up -d
+docker-compose -f deploy/docker/docker-compose.yml up -d
 ```
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed deployment options (AWS, Kubernetes, etc.).
+See [docs/deployment.md](docs/deployment.md) for detailed deployment options (AWS, Kubernetes, etc.).
 
 ## Features
 
