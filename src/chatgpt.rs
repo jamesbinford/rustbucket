@@ -163,9 +163,15 @@ impl ChatService for ChatGPT {
 mod tests {
     use super::*;
     use std::env;
-    use std::fs;
     use tempfile::NamedTempFile;
     use std::io::Write;
+    use std::sync::{Mutex, OnceLock};
+
+    // Mutex to ensure tests that modify environment variables run serially
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
 
     #[test]
     fn test_static_messages_struct() {
@@ -237,6 +243,8 @@ mod tests {
 
     #[test]
     fn test_from_config_missing_api_key() {
+        let _guard = env_lock().lock().unwrap();
+
         // Create a temporary config file
         let mut temp_file = NamedTempFile::new().unwrap();
         writeln!(temp_file, "[llm]").unwrap();
@@ -255,6 +263,8 @@ mod tests {
 
     #[test]
     fn test_from_config_missing_static_messages() {
+        let _guard = env_lock().lock().unwrap();
+
         // Create a temporary config file without static messages
         let mut temp_file = NamedTempFile::new().unwrap();
         writeln!(temp_file, "[other]").unwrap();
@@ -274,6 +284,8 @@ mod tests {
 
     #[test]
     fn test_from_config_success() {
+        let _guard = env_lock().lock().unwrap();
+
         // Create a proper config file
         let mut temp_file = NamedTempFile::new().unwrap();
         writeln!(temp_file, "[llm]").unwrap();
@@ -299,6 +311,8 @@ mod tests {
 
     #[test]
     fn test_chatgpt_clone() {
+        let _guard = env_lock().lock().unwrap();
+
         env::set_var("CHATGPT_API_KEY", "test_key");
 
         let mut temp_file = NamedTempFile::new().unwrap();
@@ -320,6 +334,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_message_request_structure() {
+        let _guard = env_lock().lock().unwrap();
+
         env::set_var("CHATGPT_API_KEY", "sk-test123");
 
         let mut temp_file = NamedTempFile::new().unwrap();

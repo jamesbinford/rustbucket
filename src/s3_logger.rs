@@ -289,6 +289,13 @@ impl S3Logger {
 mod tests {
     use super::*;
     use std::env;
+    use std::sync::{Mutex, OnceLock};
+
+    // Mutex to ensure tests that modify environment variables run serially
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
 
     #[test]
     fn test_s3_config_default() {
@@ -355,6 +362,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_s3_logger_new_disabled() {
+        let _guard = env_lock().lock().unwrap();
+
         // Clear environment variables
         env::remove_var("S3_LOGGING_ENABLED");
         env::remove_var("S3_BUCKET_NAME");
@@ -372,6 +381,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_s3_logger_new_with_env_vars() {
+        let _guard = env_lock().lock().unwrap();
+
         env::set_var("S3_LOGGING_ENABLED", "true");
         env::set_var("S3_BUCKET_NAME", "test-bucket");
         env::set_var("S3_REGION", "us-west-2");
@@ -401,7 +412,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_s3_logger_is_enabled_false_when_disabled() {
+        let _guard = env_lock().lock().unwrap();
+
         env::remove_var("S3_LOGGING_ENABLED");
+        env::remove_var("S3_BUCKET_NAME");
 
         let instance_name = "test-instance".to_string();
         let logger = S3Logger::new(instance_name).await.unwrap();
@@ -411,6 +425,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_s3_logger_is_enabled_false_when_no_bucket() {
+        let _guard = env_lock().lock().unwrap();
+
         env::set_var("S3_LOGGING_ENABLED", "true");
         env::remove_var("S3_BUCKET_NAME");
 
@@ -425,7 +441,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_s3_logger_upload_now_when_disabled() {
+        let _guard = env_lock().lock().unwrap();
+
         env::remove_var("S3_LOGGING_ENABLED");
+        env::remove_var("S3_BUCKET_NAME");
 
         let instance_name = "test-instance".to_string();
         let logger = S3Logger::new(instance_name).await.unwrap();
