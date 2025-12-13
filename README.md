@@ -9,6 +9,20 @@ The fun sauce is that Rustbucket also has a built-in ChatGPT integration, allowi
 Admittedly, ChatGPT can only pretend to be an Ubuntu server about 60% of the time. Nonetheless, it's a fun addition to the honeypot that can lead to some interesting interactions.
 You can also modify the prompts yourself in Config.toml to make ChatGPT behavior however you'd like!
 
+## Quick Start
+
+Get Rustbucket running in 2 minutes:
+
+```bash
+git clone https://github.com/jamesbinford/rustbucket.git
+cd rustbucket
+cp .env.example .env
+# Edit .env and add your CHATGPT_API_KEY
+docker-compose up -d
+```
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed deployment options (AWS, Kubernetes, etc.).
+
 ## Features
 
 - **Protocol Emulation**: Mimics popular services such as SSH, SMTP, HTTP, and FTP with intelligent response generation.

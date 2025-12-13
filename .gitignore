@@ -20,3 +20,4 @@
 # Windows system files
 Thumbs.db
 ehthumbs.db
+.env
