@@ -6,6 +6,11 @@ use rand::distributions::Alphanumeric;
 use rand::Rng;
 use std::time::Duration;
 use std::env;
+use std::fs;
+use std::path::Path;
+
+/// File path for persisting instance identity across restarts
+const IDENTITY_FILE: &str = ".rustbucket_identity";
 
 #[derive(Debug, Deserialize)]
 struct RegistrationConfig {
@@ -15,6 +20,13 @@ struct RegistrationConfig {
 #[derive(Debug, Deserialize)]
 struct AppConfig {
     registration: Option<RegistrationConfig>,
+}
+
+/// Persistent identity for this rustbucket instance
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct InstanceIdentity {
+    name: String,
+    token: String,
 }
 
 /// System information collected for registration
@@ -170,6 +182,68 @@ async fn send_registration_request(
 }
 
 
+/// Load existing identity from file or create a new one.
+/// This ensures the same identity is used across restarts.
+fn load_or_create_identity() -> InstanceIdentity {
+    let identity_path = Path::new(IDENTITY_FILE);
+
+    // Try to load existing identity
+    if identity_path.exists() {
+        match fs::read_to_string(identity_path) {
+            Ok(contents) => {
+                match serde_json::from_str::<InstanceIdentity>(&contents) {
+                    Ok(identity) => {
+                        info!(
+                            name = %identity.name,
+                            "Loaded existing instance identity from {}",
+                            IDENTITY_FILE
+                        );
+                        return identity;
+                    }
+                    Err(e) => {
+                        warn!(
+                            "Failed to parse identity file, generating new identity: {}",
+                            e
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                warn!(
+                    "Failed to read identity file, generating new identity: {}",
+                    e
+                );
+            }
+        }
+    }
+
+    // Generate new identity
+    let identity = InstanceIdentity {
+        name: generate_name(),
+        token: generate_token(),
+    };
+
+    // Save to file for next restart
+    match serde_json::to_string_pretty(&identity) {
+        Ok(json) => {
+            if let Err(e) = fs::write(identity_path, json) {
+                warn!("Failed to save identity file: {}", e);
+            } else {
+                info!(
+                    name = %identity.name,
+                    "Created and saved new instance identity to {}",
+                    IDENTITY_FILE
+                );
+            }
+        }
+        Err(e) => {
+            warn!("Failed to serialize identity: {}", e);
+        }
+    }
+
+    identity
+}
+
 pub async fn register_instance() {
     info!("Checking registration configuration...");
 
@@ -182,11 +256,12 @@ pub async fn register_instance() {
         }
     };
 
-    // Generate instance identity
-    let instance_name = generate_name();
-    let instance_token = generate_token();
-    info!("Generated instance name: {}", instance_name);
-    info!("Generated instance token: {}", instance_token);
+    // Load or create persistent identity (survives restarts)
+    let identity = load_or_create_identity();
+    info!(
+        name = %identity.name,
+        "Using instance identity"
+    );
 
     // Collect system information
     let system_info = collect_system_info().await;
@@ -195,8 +270,8 @@ pub async fn register_instance() {
     info!("Attempting to register instance with URL: {}", registry_url);
     send_registration_request(
         &registry_url,
-        &instance_name,
-        &instance_token,
+        &identity.name,
+        &identity.token,
         &system_info,
     )
     .await;
@@ -342,5 +417,30 @@ mod tests {
         let os = get_operating_system();
         assert!(!os.is_empty(), "Operating system string should not be empty");
         assert!(os.contains("("), "Operating system should include architecture");
+    }
+
+    #[test]
+    fn test_instance_identity_serialization() {
+        let identity = InstanceIdentity {
+            name: "rustbucket-test1234".to_string(),
+            token: "abcdef1234567890abcdef1234567890".to_string(),
+        };
+
+        let json = serde_json::to_string(&identity).unwrap();
+        assert!(json.contains("rustbucket-test1234"));
+        assert!(json.contains("abcdef1234567890abcdef1234567890"));
+
+        let parsed: InstanceIdentity = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.name, identity.name);
+        assert_eq!(parsed.token, identity.token);
+    }
+
+    #[test]
+    fn test_instance_identity_deserialization() {
+        let json = r#"{"name":"rustbucket-abcd1234","token":"token123456789012345678901234"}"#;
+        let identity: InstanceIdentity = serde_json::from_str(json).unwrap();
+
+        assert_eq!(identity.name, "rustbucket-abcd1234");
+        assert_eq!(identity.token, "token123456789012345678901234");
     }
 }

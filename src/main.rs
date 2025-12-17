@@ -113,8 +113,9 @@ async fn main() -> tokio::io::Result<()> {
         }
     }
 
-    // Register this instance (optional)
-    // @todo Define what happens if registration has already happened.
+    // Register this instance (optional).
+    // Identity is persisted in .rustbucket_identity so the same name/token
+    // is used across restarts.
     registration::register_instance().await;
 
     // Create tasks for each listener on different ports

@@ -8,6 +8,7 @@ use crate::handler::ChatService; // Import the new trait
 // Struct for loading configuration
 #[derive(Debug, Deserialize)]
 struct OpenAIConfig {
+	model: Option<String>,
 	static_messages: StaticMessages,
 }
 
@@ -47,6 +48,7 @@ struct MessageResponse {
 #[derive(Debug, Clone)]
 pub struct ChatGPT {
 	api_key: String,
+	model: String,
 	static_messages: StaticMessages,
 	client: Client,
 }
@@ -72,17 +74,19 @@ impl ChatGPT {
 				"ChatGPT API key not found in environment variable CHATGPT_API_KEY",
 			)))?;
 
-		let static_messages = llm_config_from_file
-			.map(|conf| conf.static_messages)
-			.ok_or_else(|| {
-				Box::new(std::io::Error::new(
-					std::io::ErrorKind::NotFound,
-					"Static messages not found in config file",
-				))
-			})?;
-		
+		let llm_config = llm_config_from_file.ok_or_else(|| {
+			Box::new(std::io::Error::new(
+				std::io::ErrorKind::NotFound,
+				"LLM configuration not found in config file",
+			))
+		})?;
+
+		let model = llm_config.model.unwrap_or_else(|| "gpt-3.5-turbo".to_string());
+		let static_messages = llm_config.static_messages;
+
 		Ok(ChatGPT {
 			api_key,
+			model,
 			static_messages,
 			client: Client::new(),
 		})
@@ -115,7 +119,7 @@ impl ChatGPT {
 		];
 		
 		let request_body = ChatGPTRequest {
-			model: "gpt-3.5-turbo", //@todo Move this to config.rs
+			model: &self.model,
 			messages,
 		};
 		
@@ -138,11 +142,17 @@ impl ChatGPT {
 				"Failed to get a successful response from ChatGPT",
 			)));
 		}
-		//@todo Change the format of the log message to be more parseable.
-		info!("We sent this to ChatGPT: {:?}", request_body);
+		info!(
+			model = %self.model,
+			user_message = %user_message,
+			"ChatGPT request sent"
+		);
 		let response_json: ChatGPTResponse = response.json().await?;
 		let reply = format!("{}\n", &response_json.choices[0].message.content);
-		info!("ChatGPT responded: {}", reply);
+		info!(
+			response = %reply.trim(),
+			"ChatGPT response received"
+		);
 		
 		Ok(reply.to_string())
 	}
@@ -192,9 +202,11 @@ mod tests {
         };
 
         let config = OpenAIConfig {
+            model: Some("gpt-4".to_string()),
             static_messages: messages,
         };
 
+        assert_eq!(config.model, Some("gpt-4".to_string()));
         assert_eq!(config.static_messages.message1, "You are a server");
         assert_eq!(config.static_messages.message2, "Respond as a server");
     }
@@ -262,10 +274,10 @@ mod tests {
     }
 
     #[test]
-    fn test_from_config_missing_static_messages() {
+    fn test_from_config_missing_llm_section() {
         let _guard = env_lock().lock().unwrap();
 
-        // Create a temporary config file without static messages
+        // Create a temporary config file without [llm] section
         let mut temp_file = NamedTempFile::new().unwrap();
         writeln!(temp_file, "[other]").unwrap();
         writeln!(temp_file, "key = \"value\"").unwrap();
@@ -276,7 +288,7 @@ mod tests {
 
         let result = ChatGPT::from_config(temp_file.path().to_str().unwrap());
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Static messages"));
+        assert!(result.unwrap_err().to_string().contains("LLM configuration"));
 
         // Clean up
         env::remove_var("CHATGPT_API_KEY");
