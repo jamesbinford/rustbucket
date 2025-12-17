@@ -1,5 +1,5 @@
 # Rustbucket AWS Deployment with Terraform
-# This creates an EC2 instance running Rustbucket with S3 logging
+# Creates an EC2 instance running Rustbucket with S3 logging
 
 terraform {
   required_version = ">= 1.0"
@@ -189,6 +189,10 @@ resource "aws_s3_bucket_lifecycle_configuration" "logs" {
     id     = "delete-old-logs"
     status = "Enabled"
 
+    filter {
+      prefix = ""
+    }
+
     expiration {
       days = var.log_retention_days
     }
@@ -199,54 +203,15 @@ resource "aws_s3_bucket_lifecycle_configuration" "logs" {
   }
 }
 
-# IAM Role for EC2 instance
-resource "aws_iam_role" "rustbucket" {
-  name = "rustbucket-ec2-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRole"
-        Effect = "Allow"
-        Principal = {
-          Service = "ec2.amazonaws.com"
-        }
-      }
-    ]
-  })
-
-  tags = {
-    Name    = "rustbucket-role"
-    Project = "Rustbucket"
-  }
-}
-
-# IAM Policy for S3 access
-resource "aws_iam_role_policy" "s3_access" {
-  name = "rustbucket-s3-access"
-  role = aws_iam_role.rustbucket.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "s3:PutObject",
-          "s3:PutObjectAcl"
-        ]
-        Resource = "${aws_s3_bucket.logs.arn}/*"
-      }
-    ]
-  })
-}
-
-# Instance Profile
-resource "aws_iam_instance_profile" "rustbucket" {
-  name = "rustbucket-instance-profile"
-  role = aws_iam_role.rustbucket.name
-}
+# NOTE: IAM Role (rustbucket-ec2-role), Policy (rustbucket-s3-access), and
+# Instance Profile (rustbucket-instance-profile) are managed outside Terraform
+# due to IAM permission constraints. They were created via AWS CLI.
+#
+# To recreate manually:
+#   aws iam create-role --role-name rustbucket-ec2-role --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
+#   aws iam put-role-policy --role-name rustbucket-ec2-role --policy-name rustbucket-s3-access --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:PutObject","s3:PutObjectAcl"],"Resource":"arn:aws:s3:::BUCKET_NAME/*"}]}'
+#   aws iam create-instance-profile --instance-profile-name rustbucket-instance-profile
+#   aws iam add-role-to-instance-profile --instance-profile-name rustbucket-instance-profile --role-name rustbucket-ec2-role
 
 # EC2 Instance
 resource "aws_instance" "rustbucket" {
@@ -254,7 +219,7 @@ resource "aws_instance" "rustbucket" {
   instance_type          = var.instance_type
   subnet_id              = aws_subnet.public.id
   vpc_security_group_ids = [aws_security_group.rustbucket.id]
-  iam_instance_profile   = aws_iam_instance_profile.rustbucket.name
+  iam_instance_profile   = "rustbucket-instance-profile"  # Managed outside Terraform
 
   root_block_device {
     volume_size = 20
@@ -263,10 +228,10 @@ resource "aws_instance" "rustbucket" {
   }
 
   user_data = templatefile("${path.module}/user-data.sh", {
-    chatgpt_api_key  = var.chatgpt_api_key
-    s3_bucket_name   = aws_s3_bucket.logs.id
-    s3_region        = var.aws_region
-    enable_s3        = var.enable_s3_logging
+    chatgpt_api_key     = var.chatgpt_api_key
+    s3_bucket_name      = aws_s3_bucket.logs.id
+    s3_region           = var.aws_region
+    enable_s3           = var.enable_s3_logging
     delete_after_upload = var.delete_after_upload
   })
 
@@ -277,7 +242,7 @@ resource "aws_instance" "rustbucket" {
   }
 
   lifecycle {
-    ignore_changes = [ami]
+    ignore_changes = [ami, iam_instance_profile]
   }
 }
 
@@ -288,16 +253,6 @@ resource "aws_eip" "rustbucket" {
 
   tags = {
     Name    = "rustbucket-eip"
-    Project = "Rustbucket"
-  }
-}
-
-# CloudWatch Log Group
-resource "aws_cloudwatch_log_group" "rustbucket" {
-  name              = "/aws/ec2/rustbucket"
-  retention_in_days = 7
-
-  tags = {
     Project = "Rustbucket"
   }
 }

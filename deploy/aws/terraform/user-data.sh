@@ -1,12 +1,32 @@
 #!/bin/bash
 set -e
 
+# Log all output
+exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+
+echo "Starting Rustbucket deployment..."
+
 # Update system
 apt-get update
 apt-get upgrade -y
 
+# Install build dependencies
+apt-get install -y \
+    build-essential \
+    pkg-config \
+    libssl-dev \
+    git \
+    curl \
+    apt-transport-https \
+    ca-certificates \
+    software-properties-common
+
+# Install Rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+source $HOME/.cargo/env
+export PATH="$HOME/.cargo/bin:$PATH"
+
 # Install Docker
-apt-get install -y apt-transport-https ca-certificates curl software-properties-common
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
 add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
 apt-get update
@@ -20,13 +40,49 @@ systemctl enable docker
 mkdir -p /opt/rustbucket
 cd /opt/rustbucket
 
+# Clone the repository
+git clone https://github.com/jamesbinford/rustbucket.git .
+
+# Create Config.toml from environment variables
+cat > Config.toml << 'CONFIG_EOF'
+[general]
+log_level = "info"
+log_directory = "./logs"
+verbose = false
+
+[llm]
+model = "gpt-3.5-turbo"
+static_messages = { message1 = "You are an Ubuntu Server.", message2 = "Respond as an Ubuntu server would. Do not break character." }
+
+[llm_escalation]
+enabled = true
+unknown_command_threshold = 3
+max_llm_calls_per_session = 10
+use_llm_for_human_like = true
+
+[s3_logging]
+enabled = ${enable_s3}
+bucket_name = "${s3_bucket_name}"
+region = "${s3_region}"
+prefix = "rustbucket-logs"
+upload_interval_hours = 24
+retry_interval_hours = 24
+delete_after_upload = ${delete_after_upload}
+CONFIG_EOF
+
+# Set environment variable for OpenAI API key
+echo "CHATGPT_API_KEY=${chatgpt_api_key}" >> /etc/environment
+
+# Build the Docker image
+docker build -t rustbucket:latest .
+
 # Create docker-compose.yml
 cat > docker-compose.yml << 'COMPOSE_EOF'
 version: '3.8'
 
 services:
   rustbucket:
-    image: ghcr.io/jamesbinford/rustbucket:latest
+    image: rustbucket:latest
     container_name: rustbucket
     restart: unless-stopped
 
@@ -48,6 +104,7 @@ services:
 
     volumes:
       - rustbucket-logs:/app/logs
+      - ./Config.toml:/app/Config.toml:ro
 
     healthcheck:
       test: ["CMD", "pgrep", "-x", "rustbucket"]
@@ -61,8 +118,7 @@ volumes:
     driver: local
 COMPOSE_EOF
 
-# Pull and start Rustbucket
-docker compose pull
+# Start Rustbucket
 docker compose up -d
 
 # Create systemd service for auto-restart
@@ -88,7 +144,7 @@ SERVICE_EOF
 systemctl daemon-reload
 systemctl enable rustbucket.service
 
-# Install CloudWatch agent (optional)
+# Install CloudWatch agent
 wget https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb
 dpkg -i -E ./amazon-cloudwatch-agent.deb
 
@@ -100,7 +156,7 @@ cat > /opt/aws/amazon-cloudwatch-agent/etc/config.json << 'CW_EOF'
       "files": {
         "collect_list": [
           {
-            "file_path": "/opt/rustbucket/logs/rustbucket.log",
+            "file_path": "/var/lib/docker/volumes/opt_rustbucket_rustbucket-logs/_data/*.log",
             "log_group_name": "/aws/ec2/rustbucket",
             "log_stream_name": "{instance_id}/rustbucket"
           }
