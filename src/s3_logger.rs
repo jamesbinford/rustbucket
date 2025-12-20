@@ -8,6 +8,8 @@ use std::time::{Duration, SystemTime};
 use tokio::time::sleep;
 use tracing::{info, error, warn};
 
+use crate::registration::InstanceIdentity;
+
 /// S3 logging configuration
 #[derive(Debug, Clone, Deserialize)]
 pub struct S3Config {
@@ -92,6 +94,72 @@ impl S3Logger {
             config,
             client,
             instance_name,
+            log_directory,
+        })
+    }
+
+    /// Create a new S3Logger instance using identity from registration
+    /// This prioritizes S3 config from the registry over local config
+    pub async fn new_with_identity(identity: InstanceIdentity) -> Result<Self, String> {
+        // Load base configuration from file
+        let settings = Config::builder()
+            .add_source(File::with_name("Config").required(false))
+            .build()
+            .map_err(|e| e.to_string())?;
+
+        let mut config: S3Config = settings
+            .get("s3_logging")
+            .unwrap_or_else(|_| S3Config::default());
+
+        // Priority: Registry config > Environment variables > Config file
+        // Check if identity has S3 config from registry
+        if let Some(bucket) = &identity.s3_bucket {
+            info!("Using S3 bucket from registry: {}", bucket);
+            config.bucket_name = Some(bucket.clone());
+            config.enabled = true;  // Enable if registry provides config
+        } else if let Ok(bucket) = std::env::var("S3_BUCKET_NAME") {
+            config.bucket_name = Some(bucket);
+        }
+
+        if let Some(region) = &identity.s3_region {
+            info!("Using S3 region from registry: {}", region);
+            config.region = Some(region.clone());
+        } else if let Ok(region) = std::env::var("S3_REGION") {
+            config.region = Some(region);
+        }
+
+        if let Some(prefix) = &identity.s3_prefix {
+            info!("Using S3 prefix from registry: {}", prefix);
+            config.prefix = Some(prefix.clone());
+        } else if let Ok(prefix) = std::env::var("S3_PREFIX") {
+            config.prefix = Some(prefix);
+        }
+
+        // Still allow environment variables to override enabled flag
+        if let Ok(enabled) = std::env::var("S3_LOGGING_ENABLED") {
+            config.enabled = enabled.to_lowercase() == "true";
+        }
+
+        if let Ok(delete) = std::env::var("S3_DELETE_AFTER_UPLOAD") {
+            config.delete_after_upload = delete.to_lowercase() == "true";
+        }
+
+        // Get log directory from config or use default
+        let log_directory = settings
+            .get_string("general.log_directory")
+            .unwrap_or_else(|_| "./logs".to_string());
+
+        // Initialize S3 client if enabled
+        let client = if config.enabled {
+            Some(Self::create_s3_client(&config).await?)
+        } else {
+            None
+        };
+
+        Ok(Self {
+            config,
+            client,
+            instance_name: identity.name,
             log_directory,
         })
     }

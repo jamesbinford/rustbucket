@@ -16,8 +16,6 @@ use protocols::http::HttpHandler;
 use protocols::ftp::FtpHandler;
 use protocols::smtp::SmtpHandler;
 use s3_logger::S3Logger;
-use rand::distributions::Alphanumeric;
-use rand::Rng;
 
 
 
@@ -94,12 +92,14 @@ async fn main() -> tokio::io::Result<()> {
         .init();
     info!("Tracing initialized");
 
-    // Generate instance name for this Rustbucket
-    let instance_name = generate_instance_name();
-    info!("Instance name: {}", instance_name);
+    // Register this instance first to get S3 config from registry.
+    // Identity is persisted in .rustbucket_identity so the same name/token
+    // and S3 config are used across restarts.
+    let identity = registration::register_instance().await;
+    info!("Instance name: {}", identity.name);
 
-    // Initialize S3 logger
-    match S3Logger::new(instance_name.clone()).await {
+    // Initialize S3 logger with config from registration (or fallback to env/config)
+    match S3Logger::new_with_identity(identity.clone()).await {
         Ok(s3_logger) => {
             if s3_logger.is_enabled() {
                 info!("S3 logging is enabled");
@@ -112,11 +112,6 @@ async fn main() -> tokio::io::Result<()> {
             error!("Failed to initialize S3 logger: {}. Continuing without S3 logging.", e);
         }
     }
-
-    // Register this instance (optional).
-    // Identity is persisted in .rustbucket_identity so the same name/token
-    // is used across restarts.
-    registration::register_instance().await;
 
     // Create tasks for each listener on different ports
     let ports = vec!["0.0.0.0:22", "0.0.0.0:25", "0.0.0.0:21", "0.0.0.0:80"];
@@ -142,14 +137,4 @@ async fn main() -> tokio::io::Result<()> {
     // This point should never be reached unless all listeners fail
     error!("All listeners have stopped. This should not happen.");
     Ok(())
-}
-
-/// Generate a unique instance name for this Rustbucket
-fn generate_instance_name() -> String {
-    let random_suffix: String = rand::thread_rng()
-        .sample_iter(&Alphanumeric)
-        .take(8)
-        .map(char::from)
-        .collect();
-    format!("rustbucket-{}", random_suffix)
 }

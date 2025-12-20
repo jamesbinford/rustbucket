@@ -24,9 +24,15 @@ struct AppConfig {
 
 /// Persistent identity for this rustbucket instance
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct InstanceIdentity {
-    name: String,
-    token: String,
+pub struct InstanceIdentity {
+    pub name: String,
+    pub token: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub s3_bucket: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub s3_region: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub s3_prefix: Option<String>,
 }
 
 /// System information collected for registration
@@ -39,6 +45,22 @@ struct SystemInfo {
     disk_space: Option<String>,
     uptime: Option<String>,
     connections: Option<String>,
+}
+
+/// S3 configuration returned by the registry
+#[derive(Debug, Clone, Deserialize)]
+struct S3ConfigResponse {
+    s3_bucket: String,
+    s3_region: String,
+    s3_prefix: String,
+}
+
+/// Registration response from the registry
+#[derive(Debug, Clone, Deserialize)]
+struct RegistrationResponse {
+    status: String,
+    #[serde(default)]
+    s3_config: Option<S3ConfigResponse>,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -106,12 +128,13 @@ async fn collect_system_info() -> SystemInfo {
 }
 
 /// Send registration request to the registry
+/// Returns S3 config if provided in the response
 async fn send_registration_request(
     registry_url: &str,
     name: &str,
     token: &str,
     system_info: &SystemInfo,
-) -> bool {
+) -> Option<S3ConfigResponse> {
     let payload = RegistrationPayload {
         name: name.to_string(),
         ip_address: system_info.ip_address.clone(),
@@ -150,22 +173,38 @@ async fn send_registration_request(
             match status {
                 reqwest::StatusCode::OK => {
                     info!("Successfully registered instance '{}'. Server response: {}", name, response_text);
-                    true
+
+                    // Parse response to extract S3 config
+                    match serde_json::from_str::<RegistrationResponse>(&response_text) {
+                        Ok(reg_response) => {
+                            if let Some(ref s3_config) = reg_response.s3_config {
+                                info!(
+                                    "Received S3 config from registry: bucket={}, region={}, prefix={}",
+                                    s3_config.s3_bucket, s3_config.s3_region, s3_config.s3_prefix
+                                );
+                            }
+                            reg_response.s3_config
+                        }
+                        Err(e) => {
+                            warn!("Failed to parse registration response: {}. S3 config not available.", e);
+                            None
+                        }
+                    }
                 }
                 reqwest::StatusCode::NOT_FOUND => {
                     error!("Registration failed: Bad URL (404 Not Found) for {}. Server response: {}", normalized_url, response_text);
-                    false
+                    None
                 }
                 reqwest::StatusCode::INTERNAL_SERVER_ERROR => {
                     error!("Registration failed: Server error (500) at {}. Server response: {}", normalized_url, response_text);
-                    false
+                    None
                 }
                 _ => {
                     warn!(
                         "Registration attempt to {} returned unexpected status: {}. Server response: {}",
                         normalized_url, status, response_text
                     );
-                    false
+                    None
                 }
             }
         }
@@ -176,7 +215,7 @@ async fn send_registration_request(
             if let Some(url_err) = e.url() {
                 error!("URL that caused the error: {}", url_err);
             }
-            false
+            None
         }
     }
 }
@@ -221,6 +260,9 @@ fn load_or_create_identity() -> InstanceIdentity {
     let identity = InstanceIdentity {
         name: generate_name(),
         token: generate_token(),
+        s3_bucket: None,
+        s3_region: None,
+        s3_prefix: None,
     };
 
     // Save to file for next restart
@@ -244,37 +286,72 @@ fn load_or_create_identity() -> InstanceIdentity {
     identity
 }
 
-pub async fn register_instance() {
+/// Save identity to file
+fn save_identity(identity: &InstanceIdentity) {
+    let identity_path = Path::new(IDENTITY_FILE);
+    match serde_json::to_string_pretty(identity) {
+        Ok(json) => {
+            if let Err(e) = fs::write(identity_path, json) {
+                warn!("Failed to save identity file: {}", e);
+            } else {
+                info!(
+                    name = %identity.name,
+                    "Saved instance identity to {}",
+                    IDENTITY_FILE
+                );
+            }
+        }
+        Err(e) => {
+            warn!("Failed to serialize identity: {}", e);
+        }
+    }
+}
+
+/// Register instance and return identity with S3 config if available
+pub async fn register_instance() -> InstanceIdentity {
     info!("Checking registration configuration...");
+
+    // Load or create persistent identity (survives restarts)
+    let mut identity = load_or_create_identity();
+    info!(
+        name = %identity.name,
+        "Using instance identity"
+    );
 
     // Load registry URL
     let registry_url = match load_registration_url() {
         Some(url) => url,
         None => {
             info!("No registry URL configured. Skipping registration.");
-            return;
+            return identity;
         }
     };
-
-    // Load or create persistent identity (survives restarts)
-    let identity = load_or_create_identity();
-    info!(
-        name = %identity.name,
-        "Using instance identity"
-    );
 
     // Collect system information
     let system_info = collect_system_info().await;
 
     // Attempt registration
     info!("Attempting to register instance with URL: {}", registry_url);
-    send_registration_request(
+    let s3_config = send_registration_request(
         &registry_url,
         &identity.name,
         &identity.token,
         &system_info,
     )
     .await;
+
+    // Update identity with S3 config if received from registry
+    if let Some(config) = s3_config {
+        identity.s3_bucket = Some(config.s3_bucket);
+        identity.s3_region = Some(config.s3_region);
+        identity.s3_prefix = Some(config.s3_prefix);
+
+        // Save updated identity to file
+        save_identity(&identity);
+        info!("Updated identity with S3 configuration from registry");
+    }
+
+    identity
 }
 
 fn generate_name() -> String {
@@ -424,11 +501,16 @@ mod tests {
         let identity = InstanceIdentity {
             name: "rustbucket-test1234".to_string(),
             token: "abcdef1234567890abcdef1234567890".to_string(),
+            s3_bucket: None,
+            s3_region: None,
+            s3_prefix: None,
         };
 
         let json = serde_json::to_string(&identity).unwrap();
         assert!(json.contains("rustbucket-test1234"));
         assert!(json.contains("abcdef1234567890abcdef1234567890"));
+        // S3 fields should be omitted when None
+        assert!(!json.contains("s3_bucket"));
 
         let parsed: InstanceIdentity = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.name, identity.name);
@@ -436,11 +518,60 @@ mod tests {
     }
 
     #[test]
+    fn test_instance_identity_with_s3_config() {
+        let identity = InstanceIdentity {
+            name: "rustbucket-test1234".to_string(),
+            token: "abcdef1234567890abcdef1234567890".to_string(),
+            s3_bucket: Some("my-bucket".to_string()),
+            s3_region: Some("us-west-2".to_string()),
+            s3_prefix: Some("logs/rustbucket-test1234/".to_string()),
+        };
+
+        let json = serde_json::to_string(&identity).unwrap();
+        assert!(json.contains("my-bucket"));
+        assert!(json.contains("us-west-2"));
+        assert!(json.contains("logs/rustbucket-test1234/"));
+
+        let parsed: InstanceIdentity = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.s3_bucket, Some("my-bucket".to_string()));
+        assert_eq!(parsed.s3_region, Some("us-west-2".to_string()));
+        assert_eq!(parsed.s3_prefix, Some("logs/rustbucket-test1234/".to_string()));
+    }
+
+    #[test]
     fn test_instance_identity_deserialization() {
+        // Test backward compatibility - old format without S3 fields
         let json = r#"{"name":"rustbucket-abcd1234","token":"token123456789012345678901234"}"#;
         let identity: InstanceIdentity = serde_json::from_str(json).unwrap();
 
         assert_eq!(identity.name, "rustbucket-abcd1234");
         assert_eq!(identity.token, "token123456789012345678901234");
+        assert_eq!(identity.s3_bucket, None);
+        assert_eq!(identity.s3_region, None);
+        assert_eq!(identity.s3_prefix, None);
+    }
+
+    #[test]
+    fn test_registration_response_parsing() {
+        // Test parsing response with S3 config
+        let json = r#"{"status":"success","s3_config":{"s3_bucket":"honeypot-logs","s3_region":"us-east-1","s3_prefix":"logs/rustbucket-test/"}}"#;
+        let response: RegistrationResponse = serde_json::from_str(json).unwrap();
+
+        assert_eq!(response.status, "success");
+        assert!(response.s3_config.is_some());
+        let s3_config = response.s3_config.unwrap();
+        assert_eq!(s3_config.s3_bucket, "honeypot-logs");
+        assert_eq!(s3_config.s3_region, "us-east-1");
+        assert_eq!(s3_config.s3_prefix, "logs/rustbucket-test/");
+    }
+
+    #[test]
+    fn test_registration_response_without_s3() {
+        // Test parsing response without S3 config (backward compatibility)
+        let json = r#"{"status":"success"}"#;
+        let response: RegistrationResponse = serde_json::from_str(json).unwrap();
+
+        assert_eq!(response.status, "success");
+        assert!(response.s3_config.is_none());
     }
 }
