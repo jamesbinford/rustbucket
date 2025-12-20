@@ -1,0 +1,145 @@
+name: LGTM Code Review
+
+on:
+  push:
+    branches:
+      - main
+      - 'claude/**'
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Cache LGTM binary
+      id: cache-lgtm
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/bin/ai-review
+        key: lgtm-${{ runner.os }}-v1
+
+    - name: Install LGTM
+      if: steps.cache-lgtm.outputs.cache-hit != 'true'
+      run: |
+        git clone https://github.com/jamesbinford/LGTM.git /tmp/lgtm
+        cd /tmp/lgtm
+        cargo build --release
+        mkdir -p ~/.cargo/bin
+        cp target/release/ai-review ~/.cargo/bin/
+
+    - name: Generate diff (PR)
+      if: github.event_name == 'pull_request'
+      run: |
+        git diff origin/${{ github.base_ref }}...HEAD > diff.patch
+
+    - name: Generate diff (Push)
+      if: github.event_name == 'push'
+      run: |
+        # Compare against parent commit for push events
+        git diff ${{ github.event.before }}...${{ github.sha }} > diff.patch || \
+        git diff HEAD~1...HEAD > diff.patch || \
+        git show --format= --diff-filter=ACMRT > diff.patch
+
+    - name: Set review output path
+      id: review-path
+      run: |
+        if [ "${{ github.event_name }}" = "pull_request" ]; then
+          echo "output_file=lgtm-reviews/pr-${{ github.event.pull_request.number }}.md" >> $GITHUB_OUTPUT
+          echo "commit_msg=Add LGTM review for PR #${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
+        else
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          echo "output_file=lgtm-reviews/commit-${SHORT_SHA}.md" >> $GITHUB_OUTPUT
+          echo "commit_msg=Add LGTM review for commit ${SHORT_SHA}" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Run LGTM review
+      env:
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        PR_ARG=""
+        if [ "${{ github.event_name }}" = "pull_request" ]; then
+          PR_ARG="--pr ${{ github.event.pull_request.number }}"
+        fi
+
+        ~/.cargo/bin/ai-review review \
+          $PR_ARG \
+          --repo ${{ github.repository }} \
+          --sha ${{ github.sha }} \
+          --branch ${{ github.ref_name }} \
+          --diff-file diff.patch \
+          --output ${{ steps.review-path.outputs.output_file }}
+
+    - name: Commit review results
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+
+        if [ -d "lgtm-reviews" ] && [ -n "$(ls -A lgtm-reviews 2>/dev/null)" ]; then
+          git add lgtm-reviews/
+          git diff --staged --quiet || git commit -m "${{ steps.review-path.outputs.commit_msg }}"
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git push origin HEAD:${{ github.head_ref }}
+          else
+            git push origin HEAD:${{ github.ref_name }}
+          fi
+        else
+          echo "No review files to commit"
+        fi
+
+    - name: Post comment on PR
+      if: success() && github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          const reviewFile = `lgtm-reviews/pr-${{ github.event.pull_request.number }}.md`;
+
+          if (fs.existsSync(reviewFile)) {
+            const content = fs.readFileSync(reviewFile, 'utf8');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(c =>
+              c.user.type === 'Bot' && c.body.includes('## LGTM Code Review')
+            );
+
+            const body = `## LGTM Code Review\n\n${content}\n\n---\n*Automated review by [LGTM](https://github.com/jamesbinford/LGTM)*`;
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body,
+              });
+            }
+          }
