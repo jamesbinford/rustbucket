@@ -36,6 +36,12 @@ output "honeypot_endpoints" {
   }
 }
 
+# Admin Access
+output "admin_ssh_command" {
+  description = "SSH command for admin access (port 2222)"
+  value       = "ssh -p 2222 ubuntu@${aws_eip.rustbucket.public_ip}"
+}
+
 # Log Access
 output "view_logs_command" {
   description = "AWS CLI command to view logs in S3"

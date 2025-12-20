@@ -23,7 +23,7 @@ RUN cargo build --release && \
     strip target/release/rustbucket
 
 # Stage 2: Create a lightweight runtime container
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \
@@ -32,23 +32,17 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
-# Create non-root user for running the application
-RUN useradd -m -u 1000 -s /bin/bash rustbucket
-
 # Set working directory
 WORKDIR /app
 
-# Create logs directory with proper permissions
-RUN mkdir -p /app/logs && chown rustbucket:rustbucket /app/logs
+# Create logs directory
+RUN mkdir -p /app/logs
 
 # Copy the binary from builder stage
 COPY --from=builder /app/target/release/rustbucket /usr/local/bin/rustbucket
 
 # Copy config file
-COPY --chown=rustbucket:rustbucket Config.toml.example ./Config.toml
-
-# Switch to non-root user
-USER rustbucket
+COPY Config.toml.example ./Config.toml
 
 # Expose honeypot ports
 EXPOSE 22/tcp

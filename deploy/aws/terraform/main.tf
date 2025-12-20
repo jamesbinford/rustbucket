@@ -106,6 +106,15 @@ resource "aws_security_group" "rustbucket" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
+  # Admin SSH (real SSH moved to 2222 so honeypot can use 22)
+  ingress {
+    description = "Admin SSH"
+    from_port   = 2222
+    to_port     = 2222
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
   # FTP Honeypot
   ingress {
     description = "FTP Honeypot"

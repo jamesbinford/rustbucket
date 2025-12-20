@@ -24,3 +24,10 @@
 Thumbs.db
 ehthumbs.db
 .env
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+tfplan

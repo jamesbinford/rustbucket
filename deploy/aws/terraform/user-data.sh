@@ -1,49 +1,46 @@
 #!/bin/bash
-set -e
 
 # Log all output
-exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+exec > /var/log/user-data.log 2>&1
+set -ex
 
-echo "Starting Rustbucket deployment..."
+echo "Starting Rustbucket deployment at $(date)"
 
 # Update system
+export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get upgrade -y
 
-# Install build dependencies
-apt-get install -y \
-    build-essential \
-    pkg-config \
-    libssl-dev \
-    git \
-    curl \
-    apt-transport-https \
-    ca-certificates \
-    software-properties-common
-
-# Install Rust
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-source $HOME/.cargo/env
-export PATH="$HOME/.cargo/bin:$PATH"
+# Install Docker dependencies
+apt-get install -y curl ca-certificates
 
 # Install Docker
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
-add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+chmod a+r /etc/apt/keyrings/docker.asc
+
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+
 apt-get update
 apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
 
-# Start and enable Docker
 systemctl start docker
 systemctl enable docker
+
+# Move system SSH to port 2222 BEFORE starting container on port 22
+sed -i 's/^#Port 22/Port 2222/' /etc/ssh/sshd_config
+sed -i 's/^Port 22/Port 2222/' /etc/ssh/sshd_config
+grep -q "^Port 2222" /etc/ssh/sshd_config || echo "Port 2222" >> /etc/ssh/sshd_config
+systemctl restart ssh
 
 # Create app directory
 mkdir -p /opt/rustbucket
 cd /opt/rustbucket
 
-# Clone the repository
-git clone https://github.com/jamesbinford/rustbucket.git .
+# Pull the container from Docker Hub
+docker pull jamesbinford/rustbucket:latest
 
-# Create Config.toml from environment variables
+# Create Config.toml
 cat > Config.toml << 'CONFIG_EOF'
 [general]
 log_level = "info"
@@ -51,7 +48,7 @@ log_directory = "./logs"
 verbose = false
 
 [llm]
-model = "gpt-3.5-turbo"
+model = "gpt-4o-mini"
 static_messages = { message1 = "You are an Ubuntu Server.", message2 = "Respond as an Ubuntu server would. Do not break character." }
 
 [llm_escalation]
@@ -70,48 +67,23 @@ retry_interval_hours = 24
 delete_after_upload = ${delete_after_upload}
 CONFIG_EOF
 
-# Set environment variable for OpenAI API key
-echo "CHATGPT_API_KEY=${chatgpt_api_key}" >> /etc/environment
-
-# Build the Docker image
-docker build -t rustbucket:latest .
-
-# Create docker-compose.yml
-cat > docker-compose.yml << 'COMPOSE_EOF'
-version: '3.8'
-
+# Create docker-compose.yml (using COMPOSE_EOF without quotes to allow variable substitution)
+cat > docker-compose.yml << COMPOSE_EOF
 services:
   rustbucket:
-    image: rustbucket:latest
+    image: jamesbinford/rustbucket:latest
     container_name: rustbucket
     restart: unless-stopped
-
     environment:
       - CHATGPT_API_KEY=${chatgpt_api_key}
-      - S3_LOGGING_ENABLED=${enable_s3}
-      - S3_BUCKET_NAME=${s3_bucket_name}
-      - S3_REGION=${s3_region}
-      - S3_DELETE_AFTER_UPLOAD=${delete_after_upload}
-
     ports:
       - "22:22"
       - "21:21"
       - "25:25"
       - "80:80"
-
-    cap_add:
-      - NET_BIND_SERVICE
-
     volumes:
       - rustbucket-logs:/app/logs
       - ./Config.toml:/app/Config.toml:ro
-
-    healthcheck:
-      test: ["CMD", "pgrep", "-x", "rustbucket"]
-      interval: 30s
-      timeout: 3s
-      start_period: 5s
-      retries: 3
 
 volumes:
   rustbucket-logs:
@@ -121,7 +93,7 @@ COMPOSE_EOF
 # Start Rustbucket
 docker compose up -d
 
-# Create systemd service for auto-restart
+# Create systemd service for auto-restart on reboot
 cat > /etc/systemd/system/rustbucket.service << 'SERVICE_EOF'
 [Unit]
 Description=Rustbucket Honeypot
@@ -140,40 +112,8 @@ TimeoutStartSec=0
 WantedBy=multi-user.target
 SERVICE_EOF
 
-# Enable systemd service
 systemctl daemon-reload
 systemctl enable rustbucket.service
 
-# Install CloudWatch agent
-wget https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb
-dpkg -i -E ./amazon-cloudwatch-agent.deb
-
-# Configure CloudWatch agent
-cat > /opt/aws/amazon-cloudwatch-agent/etc/config.json << 'CW_EOF'
-{
-  "logs": {
-    "logs_collected": {
-      "files": {
-        "collect_list": [
-          {
-            "file_path": "/var/lib/docker/volumes/opt_rustbucket_rustbucket-logs/_data/*.log",
-            "log_group_name": "/aws/ec2/rustbucket",
-            "log_stream_name": "{instance_id}/rustbucket"
-          }
-        ]
-      }
-    }
-  }
-}
-CW_EOF
-
-# Start CloudWatch agent
-/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
-  -a fetch-config \
-  -m ec2 \
-  -s \
-  -c file:/opt/aws/amazon-cloudwatch-agent/etc/config.json
-
-echo "Rustbucket deployment complete!"
-echo "Instance is now running and collecting honeypot data."
-echo "Logs will be uploaded to S3 bucket: ${s3_bucket_name}"
+echo "Rustbucket deployment complete at $(date)!"
+echo "Admin SSH on port 2222, honeypot on ports 21/22/25/80"
