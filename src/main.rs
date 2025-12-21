@@ -40,8 +40,9 @@ async fn start_ssh_server(chatgpt: ChatGPT, llm_config: LlmEscalationConfig) -> 
     let config = Arc::new(config);
     let mut server = SshHoneypotServer::new(chatgpt, llm_config);
 
-    info!("Starting SSH honeypot on 0.0.0.0:22");
-    server.run_on_address(config, ("0.0.0.0", 22)).await?;
+    let ssh_port = std::env::var("SSH_PORT").unwrap_or_else(|_| "22".to_string()).parse().unwrap_or(22);
+    info!("Starting SSH honeypot on 0.0.0.0:{}", ssh_port);
+    server.run_on_address(config, ("0.0.0.0", ssh_port)).await?;
 
     Ok(())
 }
