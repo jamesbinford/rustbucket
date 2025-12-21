@@ -25,7 +25,7 @@ use russh::server::Server as _;
 /// Start the SSH honeypot server using russh (real SSH protocol)
 async fn start_ssh_server(chatgpt: ChatGPT, llm_config: LlmEscalationConfig) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Generate SSH host key (Ed25519)
-    let key = russh_keys::PrivateKey::random(&mut OsRng, russh_keys::Algorithm::Ed25519)
+    let key = russh::keys::PrivateKey::random(&mut OsRng, russh::keys::Algorithm::Ed25519)
         .map_err(|e| format!("Failed to generate SSH host key: {}", e))?;
     info!("Generated SSH host key (Ed25519)");
 

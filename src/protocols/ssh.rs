@@ -3,7 +3,7 @@ use super::LlmEscalationConfig;
 use crate::handler::ChatService;
 use russh::server::{Auth, Msg, Server as SshServer, Session};
 use russh::{Channel, ChannelId, CryptoVec};
-use ssh_key::{HashAlg, PublicKey};
+use russh::keys::{HashAlg, PublicKey};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -64,7 +64,6 @@ impl<C: ChatService + Send + Sync + 'static> SshHoneypotHandler<C> {
     }
 }
 
-#[async_trait::async_trait]
 impl<C: ChatService + Send + Sync + 'static> russh::server::Handler for SshHoneypotHandler<C> {
     type Error = russh::Error;
 
