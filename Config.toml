@@ -33,15 +33,14 @@ use_llm_for_human_like = true
 
 [s3_logging]
 # S3 logging configuration for uploading daily logs
+# S3 logging is enabled automatically when a bucket_name is provided.
 # Can also be configured via environment variables:
-#   S3_LOGGING_ENABLED=true
 #   S3_BUCKET_NAME=my-honeypot-logs
 #   S3_REGION=us-east-1
 #   S3_PREFIX=rustbucket-logs (optional)
 #   S3_DELETE_AFTER_UPLOAD=true (optional)
-enabled = false
-bucket_name = ""  # e.g., "my-honeypot-logs"
-region = "us-east-1"
+bucket_name = ""  # Set to enable S3 logging, e.g., "my-honeypot-logs"
+region = ""  # Optional: falls back to AWS_REGION or EC2 instance metadata if empty
 prefix = ""  # Optional: prefix for S3 keys, e.g., "honeypot-logs"
 upload_interval_hours = 24  # How often to check for and upload logs
 retry_interval_hours = 24   # How long to wait before retrying after a failure

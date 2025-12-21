@@ -11,7 +11,6 @@ use tracing::{info, error, warn};
 /// S3 logging configuration
 #[derive(Debug, Clone, Deserialize)]
 pub struct S3Config {
-    pub enabled: bool,
     pub bucket_name: Option<String>,
     pub region: Option<String>,
     pub prefix: Option<String>,
@@ -23,7 +22,6 @@ pub struct S3Config {
 impl Default for S3Config {
     fn default() -> Self {
         Self {
-            enabled: false,
             bucket_name: None,
             region: None,
             prefix: None,
@@ -56,10 +54,6 @@ impl S3Logger {
             .unwrap_or_else(|_| S3Config::default());
 
         // Override with environment variables if present
-        if let Ok(enabled) = std::env::var("S3_LOGGING_ENABLED") {
-            config.enabled = enabled.to_lowercase() == "true";
-        }
-
         if let Ok(bucket) = std::env::var("S3_BUCKET_NAME") {
             config.bucket_name = Some(bucket);
         }
@@ -81,8 +75,9 @@ impl S3Logger {
             .get_string("general.log_directory")
             .unwrap_or_else(|_| "./logs".to_string());
 
-        // Initialize S3 client if enabled
-        let client = if config.enabled {
+        // Initialize S3 client if bucket is configured
+        let has_bucket = matches!(&config.bucket_name, Some(name) if !name.is_empty());
+        let client = if has_bucket {
             Some(Self::create_s3_client(&config).await?)
         } else {
             None
@@ -100,21 +95,22 @@ impl S3Logger {
     async fn create_s3_client(config: &S3Config) -> Result<S3Client, String> {
         let mut aws_config_builder = aws_config::defaults(BehaviorVersion::latest());
 
-        // Set region if specified
+        // Set region if specified (non-empty)
         if let Some(region) = &config.region {
-            aws_config_builder = aws_config_builder.region(
-                aws_config::Region::new(region.clone())
-            );
+            if !region.is_empty() {
+                aws_config_builder = aws_config_builder.region(
+                    aws_config::Region::new(region.clone())
+                );
+            }
         }
 
         let aws_config = aws_config_builder.load().await;
         Ok(S3Client::new(&aws_config))
     }
 
-    /// Check if S3 logging is enabled and configured
+    /// Check if S3 logging is enabled (bucket name is configured)
     pub fn is_enabled(&self) -> bool {
-        self.config.enabled
-            && matches!(&self.config.bucket_name, Some(name) if !name.is_empty())
+        matches!(&self.config.bucket_name, Some(name) if !name.is_empty())
             && self.client.is_some()
     }
 
@@ -300,7 +296,6 @@ mod tests {
     #[test]
     fn test_s3_config_default() {
         let config = S3Config::default();
-        assert!(!config.enabled);
         assert!(config.bucket_name.is_none());
         assert!(config.region.is_none());
         assert!(config.prefix.is_none());
@@ -312,7 +307,6 @@ mod tests {
     #[test]
     fn test_s3_config_clone() {
         let config = S3Config {
-            enabled: true,
             bucket_name: Some("test-bucket".to_string()),
             region: Some("us-east-1".to_string()),
             prefix: Some("logs".to_string()),
@@ -322,7 +316,6 @@ mod tests {
         };
 
         let cloned = config.clone();
-        assert_eq!(config.enabled, cloned.enabled);
         assert_eq!(config.bucket_name, cloned.bucket_name);
         assert_eq!(config.region, cloned.region);
         assert_eq!(config.prefix, cloned.prefix);
@@ -361,18 +354,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_s3_logger_new_disabled() {
+    async fn test_s3_logger_new_no_bucket() {
         let _guard = env_lock().lock().unwrap();
 
         // Clear environment variables
-        env::remove_var("S3_LOGGING_ENABLED");
         env::remove_var("S3_BUCKET_NAME");
         env::remove_var("S3_REGION");
 
         let instance_name = "test-instance".to_string();
         let result = S3Logger::new(instance_name).await;
 
-        // Should succeed even if S3 is not configured (disabled by default)
+        // Should succeed even if S3 is not configured
         assert!(result.is_ok());
 
         let logger = result.unwrap();
@@ -383,7 +375,6 @@ mod tests {
     async fn test_s3_logger_new_with_env_vars() {
         let _guard = env_lock().lock().unwrap();
 
-        env::set_var("S3_LOGGING_ENABLED", "true");
         env::set_var("S3_BUCKET_NAME", "test-bucket");
         env::set_var("S3_REGION", "us-west-2");
         env::set_var("S3_PREFIX", "test-prefix");
@@ -396,14 +387,12 @@ mod tests {
         let logger = result.unwrap();
 
         assert_eq!(logger.instance_name, instance_name);
-        assert!(logger.config.enabled);
         assert_eq!(logger.config.bucket_name, Some("test-bucket".to_string()));
         assert_eq!(logger.config.region, Some("us-west-2".to_string()));
         assert_eq!(logger.config.prefix, Some("test-prefix".to_string()));
         assert!(logger.config.delete_after_upload);
 
         // Clean up
-        env::remove_var("S3_LOGGING_ENABLED");
         env::remove_var("S3_BUCKET_NAME");
         env::remove_var("S3_REGION");
         env::remove_var("S3_PREFIX");
@@ -411,23 +400,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_s3_logger_is_enabled_false_when_disabled() {
-        let _guard = env_lock().lock().unwrap();
-
-        env::remove_var("S3_LOGGING_ENABLED");
-        env::remove_var("S3_BUCKET_NAME");
-
-        let instance_name = "test-instance".to_string();
-        let logger = S3Logger::new(instance_name).await.unwrap();
-
-        assert!(!logger.is_enabled());
-    }
-
-    #[tokio::test]
     async fn test_s3_logger_is_enabled_false_when_no_bucket() {
         let _guard = env_lock().lock().unwrap();
 
-        env::set_var("S3_LOGGING_ENABLED", "true");
         env::remove_var("S3_BUCKET_NAME");
 
         let instance_name = "test-instance".to_string();
@@ -435,15 +410,12 @@ mod tests {
 
         // Should not be enabled without bucket name
         assert!(!logger.is_enabled());
-
-        env::remove_var("S3_LOGGING_ENABLED");
     }
 
     #[tokio::test]
-    async fn test_s3_logger_upload_now_when_disabled() {
+    async fn test_s3_logger_upload_now_when_no_bucket() {
         let _guard = env_lock().lock().unwrap();
 
-        env::remove_var("S3_LOGGING_ENABLED");
         env::remove_var("S3_BUCKET_NAME");
 
         let instance_name = "test-instance".to_string();
@@ -457,7 +429,6 @@ mod tests {
     #[test]
     fn test_s3_config_deserialize() {
         let toml_str = r#"
-            enabled = true
             bucket_name = "my-bucket"
             region = "us-east-1"
             prefix = "logs"
@@ -467,7 +438,6 @@ mod tests {
         "#;
 
         let config: S3Config = toml::from_str(toml_str).unwrap();
-        assert!(config.enabled);
         assert_eq!(config.bucket_name, Some("my-bucket".to_string()));
         assert_eq!(config.region, Some("us-east-1".to_string()));
         assert_eq!(config.prefix, Some("logs".to_string()));
@@ -479,7 +449,6 @@ mod tests {
     #[test]
     fn test_s3_config_deserialize_minimal() {
         let toml_str = r#"
-            enabled = false
             bucket_name = ""
             region = "us-east-1"
             prefix = ""
@@ -489,7 +458,6 @@ mod tests {
         "#;
 
         let config: S3Config = toml::from_str(toml_str).unwrap();
-        assert!(!config.enabled);
         assert_eq!(config.bucket_name, Some("".to_string()));
         assert_eq!(config.upload_interval_hours, 24);
         assert!(!config.delete_after_upload);
