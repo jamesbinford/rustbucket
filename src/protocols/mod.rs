@@ -1,4 +1,5 @@
 pub mod ssh;
+pub mod ssh_shell;
 pub mod http;
 pub mod ftp;
 pub mod smtp;

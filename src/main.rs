@@ -11,64 +11,76 @@ use tracing_subscriber::EnvFilter;
 use tracing_appender::rolling;
 use chatgpt::ChatGPT;
 use protocols::{ProtocolHandler, LlmEscalationConfig};
-use protocols::ssh::SshHandler;
+use protocols::ssh::SshHoneypotServer;
 use protocols::http::HttpHandler;
 use protocols::ftp::FtpHandler;
 use protocols::smtp::SmtpHandler;
 use s3_logger::S3Logger;
 use rand::distributions::Alphanumeric;
 use rand::Rng;
+use rand::rngs::OsRng;
+use std::sync::Arc;
+use russh::server::Server as _;
 
+/// Start the SSH honeypot server using russh (real SSH protocol)
+async fn start_ssh_server(chatgpt: ChatGPT, llm_config: LlmEscalationConfig) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Generate SSH host key (Ed25519)
+    let key = russh_keys::PrivateKey::random(&mut OsRng, russh_keys::Algorithm::Ed25519)
+        .map_err(|e| format!("Failed to generate SSH host key: {}", e))?;
+    info!("Generated SSH host key (Ed25519)");
 
+    // Configure the SSH server
+    let config = russh::server::Config {
+        keys: vec![key],
+        auth_rejection_time: std::time::Duration::from_secs(1),
+        auth_rejection_time_initial: Some(std::time::Duration::from_secs(0)),
+        ..Default::default()
+    };
 
+    let config = Arc::new(config);
+    let mut server = SshHoneypotServer::new(chatgpt, llm_config);
+
+    info!("Starting SSH honeypot on 0.0.0.0:22");
+    server.run_on_address(config, ("0.0.0.0", 22)).await?;
+
+    Ok(())
+}
+
+/// Start a TCP listener for non-SSH protocols (HTTP, FTP, SMTP)
 async fn start_listener(addr: &str) -> tokio::io::Result<()> {
     let listener = TcpListener::bind(addr).await?;
-    // Retrieve the actual address and port the listener is bound to
     let listener_addr = listener.local_addr()?;
     println!("Listening on {}", listener_addr);
+
     // Instantiate ChatGPT
     let chatgpt = ChatGPT::new().unwrap();
-
-    // Create LLM escalation config
     let llm_config = LlmEscalationConfig::default();
 
     loop {
         match listener.accept().await {
             Ok((stream, client_addr)) => {
                 println!("New connection on {} from {}", listener_addr, client_addr);
-                // Spawn a new task to handle the connection asynchronously
                 let chatgpt = chatgpt.clone();
                 let llm_config = llm_config.clone();
 
                 task::spawn(async move {
                     match listener_addr.port() {
-                        22 => {
-                            // SSH honeypot
-                            info!("Actor attempted to connect to port 22 - SSH");
-                            let mut handler = SshHandler::new(chatgpt, llm_config);
-                            handler.handle_connection(stream).await;
-                        }
                         25 => {
-                            // SMTP honeypot
                             info!("Actor attempted to connect to port 25 - SMTP");
                             let mut handler = SmtpHandler::new(chatgpt, llm_config);
                             handler.handle_connection(stream).await;
                         }
                         80 => {
-                            // HTTP honeypot
                             info!("Actor attempted to connect to port 80 - HTTP");
                             let mut handler = HttpHandler::new(chatgpt, llm_config);
                             handler.handle_connection(stream).await;
                         }
                         21 => {
-                            // FTP honeypot
                             info!("Actor attempted to connect to port 21 - FTP");
                             let mut handler = FtpHandler::new(chatgpt, llm_config);
                             handler.handle_connection(stream).await;
                         }
                         _ => {
-                            // We know our Security Groups are misconfigured if we hit this message.
-                            // Open Security Groups should map 1:1 with the ports in this match statement.
                             error!("Actor connected to an unexpected port: {}", listener_addr.port());
                         }
                     }
@@ -80,6 +92,7 @@ async fn start_listener(addr: &str) -> tokio::io::Result<()> {
         }
     }
 }
+
 #[tokio::main]
 async fn main() -> tokio::io::Result<()> {
     // Set up rolling logs
@@ -113,17 +126,24 @@ async fn main() -> tokio::io::Result<()> {
         }
     }
 
-    // Register this instance (optional).
-    // Identity is persisted in .rustbucket_identity so the same name/token
-    // is used across restarts.
+    // Register this instance (optional)
     registration::register_instance().await;
 
-    // Create tasks for each listener on different ports
-    let ports = vec!["0.0.0.0:22", "0.0.0.0:25", "0.0.0.0:21", "0.0.0.0:80"];
+    // Start SSH server (uses russh for real SSH protocol)
+    let chatgpt_for_ssh = ChatGPT::new().unwrap();
+    let llm_config_for_ssh = LlmEscalationConfig::default();
 
-    let mut handles = vec![];
+    let ssh_handle = tokio::spawn(async move {
+        if let Err(e) = start_ssh_server(chatgpt_for_ssh, llm_config_for_ssh).await {
+            error!("SSH server failed: {}", e);
+        }
+    });
 
-    for port in ports {
+    // Start other protocol listeners (SMTP, HTTP, FTP)
+    let other_ports = vec!["0.0.0.0:25", "0.0.0.0:21", "0.0.0.0:80"];
+    let mut handles = vec![ssh_handle];
+
+    for port in other_ports {
         let handle = tokio::spawn(async move {
             if let Err(e) = start_listener(port).await {
                 error!("Listener for {} failed: {}", port, e);
@@ -134,12 +154,11 @@ async fn main() -> tokio::io::Result<()> {
 
     info!("All listeners started. Honeypot is now running indefinitely.");
 
-    // Wait for all listener tasks (they run forever, so this keeps the program alive)
+    // Wait for all listener tasks
     for handle in handles {
         let _ = handle.await;
     }
 
-    // This point should never be reached unless all listeners fail
     error!("All listeners have stopped. This should not happen.");
     Ok(())
 }
