@@ -139,9 +139,6 @@ impl LlmEscalationConfig {
 /// Base trait for protocol handlers
 #[async_trait::async_trait]
 pub trait ProtocolHandler {
-    /// Get the protocol name (e.g., "SSH", "HTTP", "FTP")
-    fn protocol_name(&self) -> &str;
-
     /// Handle an incoming connection
     async fn handle_connection<S>(&mut self, stream: S)
     where

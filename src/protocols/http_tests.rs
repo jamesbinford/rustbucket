@@ -26,7 +26,7 @@ mod tests {
         let config = LlmEscalationConfig::default();
         let handler = HttpHandler::new(mock_chat, config);
 
-        assert_eq!(handler.protocol_name(), "HTTP");
+        assert!(handler.known_paths.contains("/"));
     }
 
     #[test]

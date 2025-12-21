@@ -177,10 +177,6 @@ impl<C: ChatService> FtpHandler<C> {
 
 #[async_trait::async_trait]
 impl<C: ChatService + Send + Sync> ProtocolHandler for FtpHandler<C> {
-    fn protocol_name(&self) -> &str {
-        "FTP"
-    }
-
     async fn handle_connection<S>(&mut self, mut stream: S)
     where
         S: AsyncRead + AsyncWrite + Unpin + Send,

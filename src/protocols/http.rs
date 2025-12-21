@@ -167,10 +167,6 @@ impl<C: ChatService> HttpHandler<C> {
 
 #[async_trait::async_trait]
 impl<C: ChatService + Send + Sync> ProtocolHandler for HttpHandler<C> {
-    fn protocol_name(&self) -> &str {
-        "HTTP"
-    }
-
     async fn handle_connection<S>(&mut self, mut stream: S)
     where
         S: AsyncRead + AsyncWrite + Unpin + Send,

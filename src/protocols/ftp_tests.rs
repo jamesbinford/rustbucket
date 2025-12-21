@@ -26,7 +26,6 @@ mod tests {
         let config = LlmEscalationConfig::default();
         let handler = FtpHandler::new(mock_chat, config);
 
-        assert_eq!(handler.protocol_name(), "FTP");
         assert_eq!(handler.current_dir, "/");
         assert!(handler.username.is_none());
         assert!(!handler.authenticated);

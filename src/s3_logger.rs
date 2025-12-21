@@ -271,7 +271,8 @@ impl S3Logger {
         Ok(())
     }
 
-    /// Manually trigger an upload (useful for testing)
+    /// Manually trigger an upload (useful for testing or manual flush)
+    #[allow(dead_code)]
     pub async fn upload_now(&self) -> Result<usize, String> {
         if !self.is_enabled() {
             return Err("S3 logging is not enabled".to_string());

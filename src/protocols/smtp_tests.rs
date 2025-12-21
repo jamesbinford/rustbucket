@@ -26,7 +26,6 @@ mod tests {
         let config = LlmEscalationConfig::default();
         let handler = SmtpHandler::new(mock_chat, config);
 
-        assert_eq!(handler.protocol_name(), "SMTP");
         assert!(handler.mail_from.is_none());
         assert!(handler.rcpt_to.is_empty());
         assert!(!handler.in_data_mode);
