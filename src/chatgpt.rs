@@ -137,8 +137,7 @@ impl ChatGPT {
 			// Most likely issues: invalid API key, rate limiting, quota exceeded, etc.
 			let error_text = response.text().await?;
 			error!("Error response from ChatGPT: {}", error_text);
-			return Err(Box::new(std::io::Error::new(
-				std::io::ErrorKind::Other,
+			return Err(Box::new(std::io::Error::other(
 				"Failed to get a successful response from ChatGPT",
 			)));
 		}

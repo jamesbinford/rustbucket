@@ -103,12 +103,10 @@ impl<C: ChatService> FtpHandler<C> {
                     self.current_dir = "/".to_string();
                 } else if path.starts_with('/') {
                     self.current_dir = path.to_string();
+                } else if self.current_dir == "/" {
+                    self.current_dir = format!("/{}", path);
                 } else {
-                    if self.current_dir == "/" {
-                        self.current_dir = format!("/{}", path);
-                    } else {
-                        self.current_dir = format!("{}/{}", self.current_dir, path);
-                    }
+                    self.current_dir = format!("{}/{}", self.current_dir, path);
                 }
                 Some(format!("250 Directory successfully changed to {}\r\n", self.current_dir))
             }
