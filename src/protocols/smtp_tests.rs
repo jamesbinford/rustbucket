@@ -2,7 +2,7 @@
 #[cfg(test)]
 mod tests {
     use crate::protocols::smtp::SmtpHandler;
-    use crate::protocols::{LlmEscalationConfig, ProtocolHandler};
+    use crate::protocols::LlmEscalationConfig;
     use crate::handler::ChatService;
 
     // Mock ChatService for testing

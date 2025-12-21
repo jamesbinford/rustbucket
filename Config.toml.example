@@ -17,7 +17,31 @@ model = "gpt-3.5-turbo"
 # in character! The longer we can keep an attacker interacting with the bucket, the richer our dataset.
 static_messages = { message1 = "You are an Ubuntu Server.", message2 = "Respond as an Ubuntu server would. Do not break character." }
 
+[llm_escalation]
+# Controls when to use LLM vs native protocol responses for cost optimization
+enabled = true
+# Use LLM after this many unknown commands in a session
+unknown_command_threshold = 3
+# Maximum LLM calls per session to control costs
+max_llm_calls_per_session = 10
+# Use LLM for human-like sessions (disable to save costs on all bot traffic)
+use_llm_for_human_like = true
+
 [registration]
 # Registration is completely optional. To enable registration, set the environment variable:
-# RUSTBUCKET_REGISTRY_URL=http://localhost:8080/api/v1/register_bucket/
-# If this environment variable is not set, registration will be skipped entirely.
+#RUSTBUCKET_REGISTRY_URL=http://localhost:45609/api/register/
+
+[s3_logging]
+# S3 logging configuration for uploading daily logs
+# S3 logging is enabled automatically when a bucket_name is provided.
+# Can also be configured via environment variables:
+#   S3_BUCKET_NAME=my-honeypot-logs
+#   S3_REGION=us-east-1
+#   S3_PREFIX=rustbucket-logs (optional)
+#   S3_DELETE_AFTER_UPLOAD=true (optional)
+bucket_name = ""  # Set to enable S3 logging, e.g., "my-honeypot-logs"
+region = ""  # Optional: falls back to AWS_REGION or EC2 instance metadata if empty
+prefix = ""  # Optional: prefix for S3 keys, e.g., "honeypot-logs"
+upload_interval_hours = 24  # How often to check for and upload logs
+retry_interval_hours = 24   # How long to wait before retrying after a failure
+delete_after_upload = false  # Delete local log files after successful S3 upload (saves disk space)
