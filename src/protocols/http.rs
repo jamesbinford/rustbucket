@@ -9,40 +9,30 @@ use std::collections::HashSet;
 #[path = "http_tests.rs"]
 mod http_tests;
 
+const KNOWN_HTTP_PATHS: &[&str] = &[
+    "/", "/index.html", "/index.php",
+    "/admin", "/admin/", "/login", "/login.php",
+    "/wp-admin", "/wp-admin/", "/wp-login.php",
+    "/phpmyadmin", "/phpmyadmin/", "/administrator",
+    "/robots.txt", "/.env", "/.git/config",
+];
+
 /// HTTP Protocol Handler
 pub struct HttpHandler<C: ChatService> {
     chat_service: C,
     session_state: SessionState,
     llm_config: LlmEscalationConfig,
-    known_paths: HashSet<String>,
+    pub(crate) known_paths: HashSet<String>,
     rate_limiter: RateLimiterRef,
 }
 
 impl<C: ChatService> HttpHandler<C> {
     pub fn new(chat_service: C, llm_config: LlmEscalationConfig, rate_limiter: RateLimiterRef) -> Self {
-        let mut known_paths = HashSet::new();
-        known_paths.insert("/".to_string());
-        known_paths.insert("/index.html".to_string());
-        known_paths.insert("/index.php".to_string());
-        known_paths.insert("/admin".to_string());
-        known_paths.insert("/admin/".to_string());
-        known_paths.insert("/login".to_string());
-        known_paths.insert("/login.php".to_string());
-        known_paths.insert("/wp-admin".to_string());
-        known_paths.insert("/wp-admin/".to_string());
-        known_paths.insert("/wp-login.php".to_string());
-        known_paths.insert("/phpmyadmin".to_string());
-        known_paths.insert("/phpmyadmin/".to_string());
-        known_paths.insert("/administrator".to_string());
-        known_paths.insert("/robots.txt".to_string());
-        known_paths.insert("/.env".to_string());
-        known_paths.insert("/.git/config".to_string());
-
         Self {
             chat_service,
             session_state: SessionState::new(),
             llm_config,
-            known_paths,
+            known_paths: KNOWN_HTTP_PATHS.iter().map(|s| s.to_string()).collect(),
             rate_limiter,
         }
     }

@@ -3,6 +3,13 @@ use crate::handler::ChatService;
 use std::collections::HashSet;
 use tracing::{info, error};
 
+const KNOWN_SSH_COMMANDS: &[&str] = &[
+    "ls", "ls -la", "ls -l", "pwd", "whoami", "id",
+    "uname", "uname -a", "cat /etc/passwd", "cat /etc/shadow",
+    "w", "ps", "ps aux", "netstat", "netstat -an",
+    "ifconfig", "ip addr", "exit", "quit",
+];
+
 /// SSH Shell Simulator - handles command parsing and response generation
 /// This is the post-authentication shell that simulates a real Linux environment
 pub struct SshShellSimulator<C: ChatService> {
@@ -17,33 +24,11 @@ pub struct SshShellSimulator<C: ChatService> {
 
 impl<C: ChatService> SshShellSimulator<C> {
     pub fn new(chat_service: C, llm_config: LlmEscalationConfig) -> Self {
-        let mut known_commands = HashSet::new();
-        // Basic commands
-        known_commands.insert("ls".to_string());
-        known_commands.insert("ls -la".to_string());
-        known_commands.insert("ls -l".to_string());
-        known_commands.insert("pwd".to_string());
-        known_commands.insert("whoami".to_string());
-        known_commands.insert("id".to_string());
-        known_commands.insert("uname".to_string());
-        known_commands.insert("uname -a".to_string());
-        known_commands.insert("cat /etc/passwd".to_string());
-        known_commands.insert("cat /etc/shadow".to_string());
-        known_commands.insert("w".to_string());
-        known_commands.insert("ps".to_string());
-        known_commands.insert("ps aux".to_string());
-        known_commands.insert("netstat".to_string());
-        known_commands.insert("netstat -an".to_string());
-        known_commands.insert("ifconfig".to_string());
-        known_commands.insert("ip addr".to_string());
-        known_commands.insert("exit".to_string());
-        known_commands.insert("quit".to_string());
-
         Self {
             chat_service,
             session_state: SessionState::new(),
             llm_config,
-            known_commands,
+            known_commands: KNOWN_SSH_COMMANDS.iter().map(|s| s.to_string()).collect(),
             hostname: "ubuntu-server".to_string(),
             username: "root".to_string(),
             current_dir: "/root".to_string(),

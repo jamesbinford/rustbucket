@@ -9,6 +9,12 @@ use std::collections::HashSet;
 #[path = "ftp_tests.rs"]
 mod ftp_tests;
 
+const KNOWN_FTP_COMMANDS: &[&str] = &[
+    "USER", "PASS", "SYST", "PWD", "CWD", "CDUP",
+    "LIST", "NLST", "RETR", "STOR", "DELE", "MKD",
+    "RMD", "QUIT", "TYPE", "PASV", "PORT",
+];
+
 /// FTP Protocol Handler
 pub struct FtpHandler<C: ChatService> {
     chat_service: C,
@@ -23,30 +29,11 @@ pub struct FtpHandler<C: ChatService> {
 
 impl<C: ChatService> FtpHandler<C> {
     pub fn new(chat_service: C, llm_config: LlmEscalationConfig, rate_limiter: RateLimiterRef) -> Self {
-        let mut known_commands = HashSet::new();
-        known_commands.insert("USER".to_string());
-        known_commands.insert("PASS".to_string());
-        known_commands.insert("SYST".to_string());
-        known_commands.insert("PWD".to_string());
-        known_commands.insert("CWD".to_string());
-        known_commands.insert("CDUP".to_string());
-        known_commands.insert("LIST".to_string());
-        known_commands.insert("NLST".to_string());
-        known_commands.insert("RETR".to_string());
-        known_commands.insert("STOR".to_string());
-        known_commands.insert("DELE".to_string());
-        known_commands.insert("MKD".to_string());
-        known_commands.insert("RMD".to_string());
-        known_commands.insert("QUIT".to_string());
-        known_commands.insert("TYPE".to_string());
-        known_commands.insert("PASV".to_string());
-        known_commands.insert("PORT".to_string());
-
         Self {
             chat_service,
             session_state: SessionState::new(),
             llm_config,
-            known_commands,
+            known_commands: KNOWN_FTP_COMMANDS.iter().map(|s| s.to_string()).collect(),
             current_dir: "/".to_string(),
             username: None,
             authenticated: false,

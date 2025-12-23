@@ -9,6 +9,11 @@ use std::collections::HashSet;
 #[path = "smtp_tests.rs"]
 mod smtp_tests;
 
+const KNOWN_SMTP_COMMANDS: &[&str] = &[
+    "HELO", "EHLO", "MAIL FROM", "RCPT TO", "DATA",
+    "RSET", "NOOP", "QUIT", "VRFY", "EXPN", "HELP",
+];
+
 /// SMTP Protocol Handler
 pub struct SmtpHandler<C: ChatService> {
     chat_service: C,
@@ -23,24 +28,11 @@ pub struct SmtpHandler<C: ChatService> {
 
 impl<C: ChatService> SmtpHandler<C> {
     pub fn new(chat_service: C, llm_config: LlmEscalationConfig, rate_limiter: RateLimiterRef) -> Self {
-        let mut known_commands = HashSet::new();
-        known_commands.insert("HELO".to_string());
-        known_commands.insert("EHLO".to_string());
-        known_commands.insert("MAIL FROM".to_string());
-        known_commands.insert("RCPT TO".to_string());
-        known_commands.insert("DATA".to_string());
-        known_commands.insert("RSET".to_string());
-        known_commands.insert("NOOP".to_string());
-        known_commands.insert("QUIT".to_string());
-        known_commands.insert("VRFY".to_string());
-        known_commands.insert("EXPN".to_string());
-        known_commands.insert("HELP".to_string());
-
         Self {
             chat_service,
             session_state: SessionState::new(),
             llm_config,
-            known_commands,
+            known_commands: KNOWN_SMTP_COMMANDS.iter().map(|s| s.to_string()).collect(),
             mail_from: None,
             rcpt_to: Vec::new(),
             in_data_mode: false,
