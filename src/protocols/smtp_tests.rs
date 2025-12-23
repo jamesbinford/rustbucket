@@ -4,6 +4,12 @@ mod tests {
     use crate::protocols::smtp::SmtpHandler;
     use crate::protocols::LlmEscalationConfig;
     use crate::handler::ChatService;
+    use crate::rate_limiter::RateLimiter;
+    use std::sync::Arc;
+
+    fn test_rate_limiter() -> Arc<RateLimiter> {
+        Arc::new(RateLimiter::new())
+    }
 
     // Mock ChatService for testing
     #[derive(Clone)]
@@ -24,7 +30,7 @@ mod tests {
             response: "mock response".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let handler = SmtpHandler::new(mock_chat, config);
+        let handler = SmtpHandler::new(mock_chat, config, test_rate_limiter());
 
         assert!(handler.mail_from.is_none());
         assert!(handler.rcpt_to.is_empty());
@@ -37,7 +43,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let handler = SmtpHandler::new(mock_chat, config);
+        let handler = SmtpHandler::new(mock_chat, config, test_rate_limiter());
 
         assert!(handler.is_known_command("HELO example.com"));
         assert!(handler.is_known_command("EHLO example.com"));
@@ -50,7 +56,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let handler = SmtpHandler::new(mock_chat, config);
+        let handler = SmtpHandler::new(mock_chat, config, test_rate_limiter());
 
         assert!(handler.is_known_command("MAIL FROM:<test@example.com>"));
         assert!(handler.is_known_command("RCPT TO:<user@example.com>"));
@@ -63,7 +69,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let handler = SmtpHandler::new(mock_chat, config);
+        let handler = SmtpHandler::new(mock_chat, config, test_rate_limiter());
 
         assert!(handler.is_known_command("RSET"));
         assert!(handler.is_known_command("NOOP"));
@@ -77,7 +83,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let handler = SmtpHandler::new(mock_chat, config);
+        let handler = SmtpHandler::new(mock_chat, config, test_rate_limiter());
 
         assert!(!handler.is_known_command("UNKNOWN"));
         assert!(!handler.is_known_command("EXPLOIT"));
@@ -89,7 +95,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let mut handler = SmtpHandler::new(mock_chat, config);
+        let mut handler = SmtpHandler::new(mock_chat, config, test_rate_limiter());
 
         let response = handler.get_native_response("HELO example.com");
         assert!(response.is_some());
@@ -104,7 +110,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let mut handler = SmtpHandler::new(mock_chat, config);
+        let mut handler = SmtpHandler::new(mock_chat, config, test_rate_limiter());
 
         let response = handler.get_native_response("EHLO example.com");
         assert!(response.is_some());
@@ -119,7 +125,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let mut handler = SmtpHandler::new(mock_chat, config);
+        let mut handler = SmtpHandler::new(mock_chat, config, test_rate_limiter());
 
         let response = handler.get_native_response("MAIL FROM:<sender@example.com>");
         assert!(response.is_some());
@@ -134,7 +140,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let mut handler = SmtpHandler::new(mock_chat, config);
+        let mut handler = SmtpHandler::new(mock_chat, config, test_rate_limiter());
 
         let response = handler.get_native_response("RCPT TO:<user@example.com>");
         assert!(response.is_some());
@@ -150,7 +156,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let mut handler = SmtpHandler::new(mock_chat, config);
+        let mut handler = SmtpHandler::new(mock_chat, config, test_rate_limiter());
 
         let response = handler.get_native_response("DATA");
         assert!(response.is_some());
@@ -166,7 +172,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let mut handler = SmtpHandler::new(mock_chat, config);
+        let mut handler = SmtpHandler::new(mock_chat, config, test_rate_limiter());
 
         // Set some state
         handler.mail_from = Some("sender@example.com".to_string());
@@ -190,7 +196,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let mut handler = SmtpHandler::new(mock_chat, config);
+        let mut handler = SmtpHandler::new(mock_chat, config, test_rate_limiter());
 
         let response = handler.get_native_response("NOOP");
         assert!(response.is_some());
@@ -204,7 +210,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let mut handler = SmtpHandler::new(mock_chat, config);
+        let mut handler = SmtpHandler::new(mock_chat, config, test_rate_limiter());
 
         let response = handler.get_native_response("QUIT");
         assert!(response.is_some());
@@ -219,7 +225,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let mut handler = SmtpHandler::new(mock_chat, config);
+        let mut handler = SmtpHandler::new(mock_chat, config, test_rate_limiter());
 
         let response = handler.get_native_response("VRFY user");
         assert!(response.is_some());
@@ -233,7 +239,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let mut handler = SmtpHandler::new(mock_chat, config);
+        let mut handler = SmtpHandler::new(mock_chat, config, test_rate_limiter());
 
         let response = handler.get_native_response("EXPN list");
         assert!(response.is_some());
@@ -247,7 +253,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let mut handler = SmtpHandler::new(mock_chat, config);
+        let mut handler = SmtpHandler::new(mock_chat, config, test_rate_limiter());
 
         let response = handler.get_native_response("HELP");
         assert!(response.is_some());
@@ -261,7 +267,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let mut handler = SmtpHandler::new(mock_chat, config);
+        let mut handler = SmtpHandler::new(mock_chat, config, test_rate_limiter());
 
         let response = handler.get_native_response("UNKNOWN");
         assert!(response.is_none());

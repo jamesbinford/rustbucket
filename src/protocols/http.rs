@@ -1,6 +1,7 @@
 use super::{ProtocolHandler, SessionState, LlmEscalationConfig};
 use crate::handler::ChatService;
 use crate::prelude::*;
+use crate::rate_limiter::RateLimiterRef;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use std::collections::HashSet;
 
@@ -14,10 +15,11 @@ pub struct HttpHandler<C: ChatService> {
     session_state: SessionState,
     llm_config: LlmEscalationConfig,
     known_paths: HashSet<String>,
+    rate_limiter: RateLimiterRef,
 }
 
 impl<C: ChatService> HttpHandler<C> {
-    pub fn new(chat_service: C, llm_config: LlmEscalationConfig) -> Self {
+    pub fn new(chat_service: C, llm_config: LlmEscalationConfig, rate_limiter: RateLimiterRef) -> Self {
         let mut known_paths = HashSet::new();
         known_paths.insert("/".to_string());
         known_paths.insert("/index.html".to_string());
@@ -41,6 +43,7 @@ impl<C: ChatService> HttpHandler<C> {
             session_state: SessionState::new(),
             llm_config,
             known_paths,
+            rate_limiter,
         }
     }
 
@@ -241,6 +244,9 @@ impl<C: ChatService + Send + Sync> ProtocolHandler for HttpHandler<C> {
                         "<html><body><h1>404 Not Found</h1></body></html>",
                     )
                 };
+
+                // Apply response delay for realism
+                self.rate_limiter.apply_response_delay().await;
 
                 // Send response
                 if let Err(e) = stream.write_all(response.as_bytes()).await {

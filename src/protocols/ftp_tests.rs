@@ -4,6 +4,12 @@ mod tests {
     use crate::protocols::ftp::FtpHandler;
     use crate::protocols::LlmEscalationConfig;
     use crate::handler::ChatService;
+    use crate::rate_limiter::RateLimiter;
+    use std::sync::Arc;
+
+    fn test_rate_limiter() -> Arc<RateLimiter> {
+        Arc::new(RateLimiter::new())
+    }
 
     // Mock ChatService for testing
     #[derive(Clone)]
@@ -24,7 +30,7 @@ mod tests {
             response: "mock response".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let handler = FtpHandler::new(mock_chat, config);
+        let handler = FtpHandler::new(mock_chat, config, test_rate_limiter());
 
         assert_eq!(handler.current_dir, "/");
         assert!(handler.username.is_none());
@@ -37,7 +43,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let handler = FtpHandler::new(mock_chat, config);
+        let handler = FtpHandler::new(mock_chat, config, test_rate_limiter());
 
         assert!(handler.is_known_command("USER admin"));
         assert!(handler.is_known_command("PASS password"));
@@ -51,7 +57,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let handler = FtpHandler::new(mock_chat, config);
+        let handler = FtpHandler::new(mock_chat, config, test_rate_limiter());
 
         assert!(handler.is_known_command("LIST"));
         assert!(handler.is_known_command("RETR file.txt"));
@@ -65,7 +71,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let handler = FtpHandler::new(mock_chat, config);
+        let handler = FtpHandler::new(mock_chat, config, test_rate_limiter());
 
         assert!(!handler.is_known_command("UNKNOWN"));
         assert!(!handler.is_known_command("EXPLOIT"));
@@ -77,7 +83,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let mut handler = FtpHandler::new(mock_chat, config);
+        let mut handler = FtpHandler::new(mock_chat, config, test_rate_limiter());
 
         let response = handler.get_native_response("USER admin");
         assert!(response.is_some());
@@ -93,7 +99,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let mut handler = FtpHandler::new(mock_chat, config);
+        let mut handler = FtpHandler::new(mock_chat, config, test_rate_limiter());
 
         let response = handler.get_native_response("PASS secret");
         assert!(response.is_some());
@@ -109,7 +115,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let mut handler = FtpHandler::new(mock_chat, config);
+        let mut handler = FtpHandler::new(mock_chat, config, test_rate_limiter());
 
         let response = handler.get_native_response("PWD");
         assert!(response.is_some());
@@ -124,7 +130,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let mut handler = FtpHandler::new(mock_chat, config);
+        let mut handler = FtpHandler::new(mock_chat, config, test_rate_limiter());
 
         assert_eq!(handler.current_dir, "/");
 
@@ -143,7 +149,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let mut handler = FtpHandler::new(mock_chat, config);
+        let mut handler = FtpHandler::new(mock_chat, config, test_rate_limiter());
 
         let response = handler.get_native_response("LIST");
         assert!(response.is_some());
@@ -159,7 +165,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let mut handler = FtpHandler::new(mock_chat, config);
+        let mut handler = FtpHandler::new(mock_chat, config, test_rate_limiter());
 
         let response = handler.get_native_response("RETR file.txt");
         assert!(response.is_some());
@@ -173,7 +179,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let mut handler = FtpHandler::new(mock_chat, config);
+        let mut handler = FtpHandler::new(mock_chat, config, test_rate_limiter());
 
         let response = handler.get_native_response("STOR file.txt");
         assert!(response.is_some());
@@ -187,7 +193,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let mut handler = FtpHandler::new(mock_chat, config);
+        let mut handler = FtpHandler::new(mock_chat, config, test_rate_limiter());
 
         let response = handler.get_native_response("TYPE I");
         assert!(response.is_some());
@@ -202,7 +208,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let mut handler = FtpHandler::new(mock_chat, config);
+        let mut handler = FtpHandler::new(mock_chat, config, test_rate_limiter());
 
         let response = handler.get_native_response("PASV");
         assert!(response.is_some());
@@ -217,7 +223,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let mut handler = FtpHandler::new(mock_chat, config);
+        let mut handler = FtpHandler::new(mock_chat, config, test_rate_limiter());
 
         let response = handler.get_native_response("QUIT");
         assert!(response.is_some());
@@ -232,7 +238,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let mut handler = FtpHandler::new(mock_chat, config);
+        let mut handler = FtpHandler::new(mock_chat, config, test_rate_limiter());
 
         let response = handler.get_native_response("UNKNOWN");
         assert!(response.is_none());

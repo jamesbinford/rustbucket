@@ -4,6 +4,12 @@ mod tests {
     use crate::protocols::http::HttpHandler;
     use crate::protocols::LlmEscalationConfig;
     use crate::handler::ChatService;
+    use crate::rate_limiter::RateLimiter;
+    use std::sync::Arc;
+
+    fn test_rate_limiter() -> Arc<RateLimiter> {
+        Arc::new(RateLimiter::new())
+    }
 
     // Mock ChatService for testing
     #[derive(Clone)]
@@ -24,7 +30,7 @@ mod tests {
             response: "mock response".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let handler = HttpHandler::new(mock_chat, config);
+        let handler = HttpHandler::new(mock_chat, config, test_rate_limiter());
 
         assert!(handler.known_paths.contains("/"));
     }
@@ -35,7 +41,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let handler = HttpHandler::new(mock_chat, config);
+        let handler = HttpHandler::new(mock_chat, config, test_rate_limiter());
 
         let request = "GET /index.html HTTP/1.1\r\nHost: example.com\r\n\r\n";
         let result = handler.parse_http_request(request);
@@ -51,7 +57,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let handler = HttpHandler::new(mock_chat, config);
+        let handler = HttpHandler::new(mock_chat, config, test_rate_limiter());
 
         let request = "POST /login HTTP/1.1\r\nHost: example.com\r\n\r\n";
         let result = handler.parse_http_request(request);
@@ -67,7 +73,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let handler = HttpHandler::new(mock_chat, config);
+        let handler = HttpHandler::new(mock_chat, config, test_rate_limiter());
 
         let request = "INVALID";
         let result = handler.parse_http_request(request);
@@ -80,7 +86,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let handler = HttpHandler::new(mock_chat, config);
+        let handler = HttpHandler::new(mock_chat, config, test_rate_limiter());
 
         assert!(handler.is_known_path("/"));
         assert!(handler.is_known_path("/index.html"));
@@ -93,7 +99,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let handler = HttpHandler::new(mock_chat, config);
+        let handler = HttpHandler::new(mock_chat, config, test_rate_limiter());
 
         assert!(handler.is_known_path("/admin"));
         assert!(handler.is_known_path("/admin/"));
@@ -106,7 +112,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let handler = HttpHandler::new(mock_chat, config);
+        let handler = HttpHandler::new(mock_chat, config, test_rate_limiter());
 
         assert!(handler.is_known_path("/wp-admin"));
         assert!(handler.is_known_path("/wp-login.php"));
@@ -118,7 +124,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let handler = HttpHandler::new(mock_chat, config);
+        let handler = HttpHandler::new(mock_chat, config, test_rate_limiter());
 
         assert!(!handler.is_known_path("/random/path"));
         assert!(!handler.is_known_path("/exploit.php"));
@@ -130,7 +136,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let mut handler = HttpHandler::new(mock_chat, config);
+        let mut handler = HttpHandler::new(mock_chat, config, test_rate_limiter());
 
         let response = handler.get_native_response("GET", "/");
         assert!(response.is_some());
@@ -145,7 +151,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let mut handler = HttpHandler::new(mock_chat, config);
+        let mut handler = HttpHandler::new(mock_chat, config, test_rate_limiter());
 
         let response = handler.get_native_response("GET", "/admin");
         assert!(response.is_some());
@@ -160,7 +166,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let mut handler = HttpHandler::new(mock_chat, config);
+        let mut handler = HttpHandler::new(mock_chat, config, test_rate_limiter());
 
         let response = handler.get_native_response("GET", "/phpmyadmin");
         assert!(response.is_some());
@@ -175,7 +181,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let mut handler = HttpHandler::new(mock_chat, config);
+        let mut handler = HttpHandler::new(mock_chat, config, test_rate_limiter());
 
         let response = handler.get_native_response("GET", "/robots.txt");
         assert!(response.is_some());
@@ -190,7 +196,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let mut handler = HttpHandler::new(mock_chat, config);
+        let mut handler = HttpHandler::new(mock_chat, config, test_rate_limiter());
 
         let response = handler.get_native_response("GET", "/.env");
         assert!(response.is_some());
@@ -204,7 +210,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let mut handler = HttpHandler::new(mock_chat, config);
+        let mut handler = HttpHandler::new(mock_chat, config, test_rate_limiter());
 
         let response = handler.get_native_response("GET", "/nonexistent");
         assert!(response.is_some());
@@ -218,7 +224,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let handler = HttpHandler::new(mock_chat, config);
+        let handler = HttpHandler::new(mock_chat, config, test_rate_limiter());
 
         let response = handler.build_http_response("200 OK", "text/html", "<html></html>");
         assert!(response.contains("HTTP/1.1 200 OK"));

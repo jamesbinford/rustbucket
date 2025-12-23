@@ -1,10 +1,11 @@
 use super::ssh_shell::SshShellSimulator;
 use super::LlmEscalationConfig;
 use crate::handler::ChatService;
+use crate::rate_limiter::RateLimiterRef;
 use russh::server::{Auth, Msg, Server as SshServer, Session};
 use russh::{Channel, ChannelId, CryptoVec};
 use russh::keys::{HashAlg, PublicKey};
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{info, error};
@@ -17,13 +18,15 @@ mod ssh_tests;
 pub struct SshHoneypotServer<C: ChatService + Clone + Send + Sync + 'static> {
     chat_service: C,
     llm_config: LlmEscalationConfig,
+    rate_limiter: RateLimiterRef,
 }
 
 impl<C: ChatService + Clone + Send + Sync + 'static> SshHoneypotServer<C> {
-    pub fn new(chat_service: C, llm_config: LlmEscalationConfig) -> Self {
+    pub fn new(chat_service: C, llm_config: LlmEscalationConfig, rate_limiter: RateLimiterRef) -> Self {
         Self {
             chat_service,
             llm_config,
+            rate_limiter,
         }
     }
 }
@@ -33,12 +36,15 @@ impl<C: ChatService + Clone + Send + Sync + 'static> SshServer for SshHoneypotSe
 
     fn new_client(&mut self, peer_addr: Option<SocketAddr>) -> Self::Handler {
         let addr = peer_addr.map(|a| a.to_string()).unwrap_or_else(|| "unknown".to_string());
+        let ip = peer_addr.map(|a| a.ip());
         info!("New SSH connection from: {}", addr);
 
         SshHoneypotHandler::new(
             self.chat_service.clone(),
             self.llm_config.clone(),
             addr,
+            ip,
+            self.rate_limiter.clone(),
         )
     }
 
@@ -51,16 +57,44 @@ impl<C: ChatService + Clone + Send + Sync + 'static> SshServer for SshHoneypotSe
 pub struct SshHoneypotHandler<C: ChatService + Send + Sync + 'static> {
     shell_simulator: Arc<Mutex<SshShellSimulator<C>>>,
     client_addr: String,
+    client_ip: Option<IpAddr>,
     input_buffer: String,
+    rate_limiter: RateLimiterRef,
+    rate_limit_checked: bool,
 }
 
 impl<C: ChatService + Send + Sync + 'static> SshHoneypotHandler<C> {
-    pub fn new(chat_service: C, llm_config: LlmEscalationConfig, client_addr: String) -> Self {
+    pub fn new(
+        chat_service: C,
+        llm_config: LlmEscalationConfig,
+        client_addr: String,
+        client_ip: Option<IpAddr>,
+        rate_limiter: RateLimiterRef,
+    ) -> Self {
         Self {
             shell_simulator: Arc::new(Mutex::new(SshShellSimulator::new(chat_service, llm_config))),
             client_addr,
+            client_ip,
             input_buffer: String::new(),
+            rate_limiter,
+            rate_limit_checked: false,
         }
+    }
+
+    /// Check rate limit on first auth attempt (since new_client is sync)
+    async fn check_rate_limit(&mut self) -> bool {
+        if self.rate_limit_checked {
+            return true; // Already checked and passed
+        }
+        self.rate_limit_checked = true;
+
+        if let Some(ip) = self.client_ip {
+            if let Err(reason) = self.rate_limiter.check_connection(ip).await {
+                info!("SSH rate limit: {} - {}", self.client_addr, reason);
+                return false;
+            }
+        }
+        true
     }
 }
 
@@ -69,6 +103,17 @@ impl<C: ChatService + Send + Sync + 'static> russh::server::Handler for SshHoney
 
     /// Handle password authentication - always accept and log credentials
     async fn auth_password(&mut self, user: &str, password: &str) -> Result<Auth, Self::Error> {
+        // Check rate limit on first auth attempt
+        if !self.check_rate_limit().await {
+            return Ok(Auth::Reject {
+                proceed_with_methods: None,
+                partial_success: false,
+            });
+        }
+
+        // Apply response delay for realism
+        self.rate_limiter.apply_response_delay().await;
+
         info!(
             "SSH password auth attempt - client: {}, user: {}, password: {}",
             self.client_addr, user, password
@@ -87,6 +132,17 @@ impl<C: ChatService + Send + Sync + 'static> russh::server::Handler for SshHoney
         user: &str,
         public_key: &PublicKey,
     ) -> Result<Auth, Self::Error> {
+        // Check rate limit on first auth attempt
+        if !self.check_rate_limit().await {
+            return Ok(Auth::Reject {
+                proceed_with_methods: None,
+                partial_success: false,
+            });
+        }
+
+        // Apply response delay for realism
+        self.rate_limiter.apply_response_delay().await;
+
         let fingerprint = public_key.fingerprint(HashAlg::Sha256);
         info!(
             "SSH publickey auth attempt - client: {}, user: {}, key_type: {}, fingerprint: {}",
@@ -312,6 +368,11 @@ impl<C: ChatService + Send + Sync + 'static> russh::server::Handler for SshHoney
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
         info!("SSH channel closed - client: {}", self.client_addr);
+
+        // Release rate limit connection tracking
+        if let Some(ip) = self.client_ip {
+            self.rate_limiter.release_connection(ip).await;
+        }
 
         // Log session statistics
         let simulator = self.shell_simulator.lock().await;

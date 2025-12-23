@@ -1,6 +1,7 @@
 use super::{ProtocolHandler, SessionState, LlmEscalationConfig};
 use crate::handler::ChatService;
 use crate::prelude::*;
+use crate::rate_limiter::RateLimiterRef;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use std::collections::HashSet;
 
@@ -17,10 +18,11 @@ pub struct SmtpHandler<C: ChatService> {
     pub(crate) mail_from: Option<String>,
     pub(crate) rcpt_to: Vec<String>,
     pub(crate) in_data_mode: bool,
+    rate_limiter: RateLimiterRef,
 }
 
 impl<C: ChatService> SmtpHandler<C> {
-    pub fn new(chat_service: C, llm_config: LlmEscalationConfig) -> Self {
+    pub fn new(chat_service: C, llm_config: LlmEscalationConfig, rate_limiter: RateLimiterRef) -> Self {
         let mut known_commands = HashSet::new();
         known_commands.insert("HELO".to_string());
         known_commands.insert("EHLO".to_string());
@@ -42,6 +44,7 @@ impl<C: ChatService> SmtpHandler<C> {
             mail_from: None,
             rcpt_to: Vec::new(),
             in_data_mode: false,
+            rate_limiter,
         }
     }
 
@@ -202,6 +205,9 @@ impl<C: ChatService + Send + Sync> ProtocolHandler for SmtpHandler<C> {
                         self.session_state.unknown_commands_count += 1;
                         "500 Command unrecognized\r\n".to_string()
                     };
+
+                    // Apply response delay for realism
+                    self.rate_limiter.apply_response_delay().await;
 
                     // Send response
                     if let Err(e) = stream.write_all(response.as_bytes()).await {

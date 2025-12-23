@@ -31,6 +31,25 @@ use_llm_for_human_like = true
 # Registration is completely optional. To enable registration, set the environment variable:
 #RUSTBUCKET_REGISTRY_URL=http://localhost:45609/api/register/
 
+[rate_limiting]
+# Rate limiting configuration to prevent detection and resource exhaustion
+# Enable/disable rate limiting
+enabled = true
+# Maximum concurrent connections per IP
+max_connections_per_ip = 5
+# Maximum new connections per IP per minute
+connection_rate_per_minute = 10
+# Number of total connections before temporary ban
+ban_threshold = 50
+# Duration of temporary ban in seconds (1 hour)
+ban_duration_seconds = 3600
+# Response delay range in milliseconds [min, max] - adds realistic latency
+response_delay_ms = [100, 300]
+# IPs that bypass rate limiting (e.g., monitoring systems)
+allowlist = []
+# IPs that are always blocked
+blocklist = []
+
 [s3_logging]
 # S3 logging configuration for uploading daily logs
 # S3 logging is enabled automatically when a bucket_name is provided.

@@ -1,6 +1,7 @@
 use super::{ProtocolHandler, SessionState, LlmEscalationConfig};
 use crate::handler::ChatService;
 use crate::prelude::*;
+use crate::rate_limiter::RateLimiterRef;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use std::collections::HashSet;
 
@@ -17,10 +18,11 @@ pub struct FtpHandler<C: ChatService> {
     pub(crate) current_dir: String,
     pub(crate) username: Option<String>,
     pub(crate) authenticated: bool,
+    rate_limiter: RateLimiterRef,
 }
 
 impl<C: ChatService> FtpHandler<C> {
-    pub fn new(chat_service: C, llm_config: LlmEscalationConfig) -> Self {
+    pub fn new(chat_service: C, llm_config: LlmEscalationConfig, rate_limiter: RateLimiterRef) -> Self {
         let mut known_commands = HashSet::new();
         known_commands.insert("USER".to_string());
         known_commands.insert("PASS".to_string());
@@ -48,6 +50,7 @@ impl<C: ChatService> FtpHandler<C> {
             current_dir: "/".to_string(),
             username: None,
             authenticated: false,
+            rate_limiter,
         }
     }
 
@@ -243,6 +246,9 @@ impl<C: ChatService + Send + Sync> ProtocolHandler for FtpHandler<C> {
                         self.session_state.unknown_commands_count += 1;
                         "500 Unknown command\r\n".to_string()
                     };
+
+                    // Apply response delay for realism
+                    self.rate_limiter.apply_response_delay().await;
 
                     // Send response
                     if let Err(e) = stream.write_all(response.as_bytes()).await {
