@@ -1,7 +1,7 @@
-use super::{ProtocolHandler, SessionState, LlmEscalationConfig};
+use super::{ProtocolHandler, SessionState, LlmEscalationConfig, CommandLoopHandler, CommandResult, run_command_loop};
 use crate::chatgpt::ChatService;
 use crate::rate_limiter::RateLimiterRef;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tracing::{info, error};
 use std::collections::HashSet;
 
@@ -163,6 +163,50 @@ impl<C: ChatService> FtpHandler<C> {
     }
 }
 
+impl<C: ChatService> CommandLoopHandler for FtpHandler<C> {
+    fn session_state(&self) -> &SessionState {
+        &self.session_state
+    }
+
+    fn session_state_mut(&mut self) -> &mut SessionState {
+        &mut self.session_state
+    }
+
+    fn llm_config(&self) -> &LlmEscalationConfig {
+        &self.llm_config
+    }
+
+    fn is_known_command(&self, cmd: &str) -> bool {
+        // Delegate to inherent method
+        FtpHandler::is_known_command(self, cmd)
+    }
+
+    fn get_native_response(&mut self, command: &str) -> Option<String> {
+        // Delegate to inherent method
+        FtpHandler::get_native_response(self, command)
+    }
+
+    fn default_error_response(&self) -> &'static str {
+        "500 Unknown command\r\n"
+    }
+
+    fn format_llm_response(&self, response: &str) -> String {
+        format!("200 {}\r\n", response.trim())
+    }
+
+    fn protocol_name(&self) -> &'static str {
+        "FTP"
+    }
+
+    fn pre_process_command(&mut self, command: &str) -> Option<(CommandResult, Option<String>)> {
+        if command.to_uppercase().starts_with("QUIT") {
+            Some((CommandResult::Exit, Some("221 Goodbye\r\n".to_string())))
+        } else {
+            None
+        }
+    }
+}
+
 #[async_trait::async_trait]
 impl<C: ChatService + Send + Sync> ProtocolHandler for FtpHandler<C> {
     async fn handle_connection<S>(&mut self, mut stream: S)
@@ -178,83 +222,9 @@ impl<C: ChatService + Send + Sync> ProtocolHandler for FtpHandler<C> {
             return;
         }
 
-        // Main command loop
-        let mut buffer = [0u8; 1024];
-        loop {
-            match stream.read(&mut buffer).await {
-                Ok(0) => {
-                    info!("FTP connection closed");
-                    break;
-                }
-                Ok(n) => {
-                    let command = String::from_utf8_lossy(&buffer[0..n]).trim().to_string();
-
-                    if command.is_empty() {
-                        continue;
-                    }
-
-                    info!("FTP command received: {}", command);
-
-                    self.session_state.commands_processed += 1;
-                    self.session_state.last_command_time = Some(std::time::Instant::now());
-
-                    // Check for QUIT command
-                    if command.to_uppercase().starts_with("QUIT") {
-                        let _ = stream.write_all(b"221 Goodbye\r\n").await;
-                        break;
-                    }
-
-                    // Determine if we should use LLM or native response
-                    let is_known = self.is_known_command(&command);
-                    let use_llm = self.llm_config.should_use_llm(
-                        &command,
-                        is_known,
-                        &self.session_state,
-                    );
-
-                    let response = if use_llm {
-                        info!("FTP: Escalating to LLM for command: {}", command);
-                        self.session_state.llm_calls_made += 1;
-                        match self.chat_service.send_message(&command).await {
-                            Ok(resp) => {
-                                // Format as FTP response
-                                format!("200 {}\r\n", resp.trim())
-                            }
-                            Err(e) => {
-                                error!("LLM error: {}", e);
-                                "500 Unknown command\r\n".to_string()
-                            }
-                        }
-                    } else if let Some(native_resp) = self.get_native_response(&command) {
-                        info!("FTP: Using native response for command: {}", command);
-                        native_resp
-                    } else {
-                        info!("FTP: Unknown command, incrementing counter: {}", command);
-                        self.session_state.unknown_commands_count += 1;
-                        "500 Unknown command\r\n".to_string()
-                    };
-
-                    // Apply response delay for realism
-                    self.rate_limiter.apply_response_delay().await;
-
-                    // Send response
-                    if let Err(e) = stream.write_all(response.as_bytes()).await {
-                        error!("Failed to send FTP response: {}", e);
-                        break;
-                    }
-                }
-                Err(e) => {
-                    error!("FTP read error: {}", e);
-                    break;
-                }
-            }
-        }
-
-        info!(
-            "FTP session ended. Commands: {}, LLM calls: {}, Duration: {:?}",
-            self.session_state.commands_processed,
-            self.session_state.llm_calls_made,
-            self.session_state.session_duration()
-        );
+        // Use shared command loop (clone to avoid borrow conflicts)
+        let chat_service = self.chat_service.clone();
+        let rate_limiter = self.rate_limiter.clone();
+        run_command_loop(self, &chat_service, &rate_limiter, &mut stream, 1024).await;
     }
 }

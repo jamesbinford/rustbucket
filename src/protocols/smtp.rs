@@ -1,7 +1,7 @@
-use super::{ProtocolHandler, SessionState, LlmEscalationConfig};
+use super::{ProtocolHandler, SessionState, LlmEscalationConfig, CommandLoopHandler, CommandResult, run_command_loop};
 use crate::chatgpt::ChatService;
 use crate::rate_limiter::RateLimiterRef;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tracing::{info, error};
 use std::collections::HashSet;
 
@@ -23,6 +23,7 @@ pub struct SmtpHandler<C: ChatService> {
     pub(crate) mail_from: Option<String>,
     pub(crate) rcpt_to: Vec<String>,
     pub(crate) in_data_mode: bool,
+    pub(crate) email_data: String,
     rate_limiter: RateLimiterRef,
 }
 
@@ -36,6 +37,7 @@ impl<C: ChatService> SmtpHandler<C> {
             mail_from: None,
             rcpt_to: Vec::new(),
             in_data_mode: false,
+            email_data: String::new(),
             rate_limiter,
         }
     }
@@ -101,6 +103,69 @@ impl<C: ChatService> SmtpHandler<C> {
     }
 }
 
+impl<C: ChatService> CommandLoopHandler for SmtpHandler<C> {
+    fn session_state(&self) -> &SessionState {
+        &self.session_state
+    }
+
+    fn session_state_mut(&mut self) -> &mut SessionState {
+        &mut self.session_state
+    }
+
+    fn llm_config(&self) -> &LlmEscalationConfig {
+        &self.llm_config
+    }
+
+    fn is_known_command(&self, cmd: &str) -> bool {
+        // Delegate to inherent method
+        SmtpHandler::is_known_command(self, cmd)
+    }
+
+    fn get_native_response(&mut self, command: &str) -> Option<String> {
+        // Delegate to inherent method
+        SmtpHandler::get_native_response(self, command)
+    }
+
+    fn default_error_response(&self) -> &'static str {
+        "500 Command unrecognized\r\n"
+    }
+
+    fn format_llm_response(&self, response: &str) -> String {
+        format!("250 {}\r\n", response.trim())
+    }
+
+    fn protocol_name(&self) -> &'static str {
+        "SMTP"
+    }
+
+    fn pre_process_command(&mut self, command: &str) -> Option<(CommandResult, Option<String>)> {
+        // Handle DATA mode
+        if self.in_data_mode {
+            if command == "." || command == ".\r" {
+                // End of email data
+                info!("SMTP email data received:\n{}", self.email_data);
+                self.email_data.clear();
+                self.in_data_mode = false;
+                self.mail_from = None;
+                self.rcpt_to.clear();
+                return Some((CommandResult::Continue, Some("250 OK: queued as 12345\r\n".to_string())));
+            } else {
+                // Accumulate email data
+                self.email_data.push_str(command);
+                self.email_data.push('\n');
+                return Some((CommandResult::SkipResponse, None));
+            }
+        }
+
+        // Check for QUIT command
+        if command.to_uppercase().starts_with("QUIT") {
+            return Some((CommandResult::Exit, Some("221 Bye\r\n".to_string())));
+        }
+
+        None
+    }
+}
+
 #[async_trait::async_trait]
 impl<C: ChatService + Send + Sync> ProtocolHandler for SmtpHandler<C> {
     async fn handle_connection<S>(&mut self, mut stream: S)
@@ -116,109 +181,9 @@ impl<C: ChatService + Send + Sync> ProtocolHandler for SmtpHandler<C> {
             return;
         }
 
-        // Main command loop
-        let mut buffer = [0u8; 4096];
-        let mut email_data = String::new();
-
-        loop {
-            match stream.read(&mut buffer).await {
-                Ok(0) => {
-                    info!("SMTP connection closed");
-                    break;
-                }
-                Ok(n) => {
-                    let command = String::from_utf8_lossy(&buffer[0..n]).trim().to_string();
-
-                    if command.is_empty() {
-                        continue;
-                    }
-
-                    info!("SMTP command received: {}", command);
-
-                    self.session_state.commands_processed += 1;
-                    self.session_state.last_command_time = Some(std::time::Instant::now());
-
-                    // Handle DATA mode
-                    if self.in_data_mode {
-                        if command == "." || command == ".\r" {
-                            // End of email data
-                            info!("SMTP email data received:\n{}", email_data);
-                            email_data.clear();
-                            self.in_data_mode = false;
-                            self.mail_from = None;
-                            self.rcpt_to.clear();
-
-                            let response = "250 OK: queued as 12345\r\n";
-                            if let Err(e) = stream.write_all(response.as_bytes()).await {
-                                error!("Failed to send SMTP response: {}", e);
-                                break;
-                            }
-                            continue;
-                        } else {
-                            // Accumulate email data
-                            email_data.push_str(&command);
-                            email_data.push('\n');
-                            continue;
-                        }
-                    }
-
-                    // Check for QUIT command
-                    if command.to_uppercase().starts_with("QUIT") {
-                        let _ = stream.write_all(b"221 Bye\r\n").await;
-                        break;
-                    }
-
-                    // Determine if we should use LLM or native response
-                    let is_known = self.is_known_command(&command);
-                    let use_llm = self.llm_config.should_use_llm(
-                        &command,
-                        is_known,
-                        &self.session_state,
-                    );
-
-                    let response = if use_llm {
-                        info!("SMTP: Escalating to LLM for command: {}", command);
-                        self.session_state.llm_calls_made += 1;
-                        match self.chat_service.send_message(&command).await {
-                            Ok(resp) => {
-                                // Format as SMTP response
-                                format!("250 {}\r\n", resp.trim())
-                            }
-                            Err(e) => {
-                                error!("LLM error: {}", e);
-                                "500 Command unrecognized\r\n".to_string()
-                            }
-                        }
-                    } else if let Some(native_resp) = self.get_native_response(&command) {
-                        info!("SMTP: Using native response for command: {}", command);
-                        native_resp
-                    } else {
-                        info!("SMTP: Unknown command, incrementing counter: {}", command);
-                        self.session_state.unknown_commands_count += 1;
-                        "500 Command unrecognized\r\n".to_string()
-                    };
-
-                    // Apply response delay for realism
-                    self.rate_limiter.apply_response_delay().await;
-
-                    // Send response
-                    if let Err(e) = stream.write_all(response.as_bytes()).await {
-                        error!("Failed to send SMTP response: {}", e);
-                        break;
-                    }
-                }
-                Err(e) => {
-                    error!("SMTP read error: {}", e);
-                    break;
-                }
-            }
-        }
-
-        info!(
-            "SMTP session ended. Commands: {}, LLM calls: {}, Duration: {:?}",
-            self.session_state.commands_processed,
-            self.session_state.llm_calls_made,
-            self.session_state.session_duration()
-        );
+        // Use shared command loop (clone to avoid borrow conflicts)
+        let chat_service = self.chat_service.clone();
+        let rate_limiter = self.rate_limiter.clone();
+        run_command_loop(self, &chat_service, &rate_limiter, &mut stream, 4096).await;
     }
 }

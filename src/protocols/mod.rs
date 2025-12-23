@@ -4,9 +4,12 @@ pub mod http;
 pub mod ftp;
 pub mod smtp;
 
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use std::time::{Duration, Instant};
 use std::collections::HashSet;
+use tracing::{info, error};
+use crate::chatgpt::ChatService;
+use crate::rate_limiter::RateLimiterRef;
 
 /// Session state tracking for LLM escalation decisions
 #[derive(Debug, Clone)]
@@ -143,6 +146,150 @@ pub trait ProtocolHandler {
     async fn handle_connection<S>(&mut self, stream: S)
     where
         S: AsyncRead + AsyncWrite + Unpin + Send;
+}
+
+/// Result of processing a command in the command loop
+pub enum CommandResult {
+    /// Continue processing commands
+    Continue,
+    /// Exit the command loop (e.g., QUIT command)
+    Exit,
+    /// Skip response (e.g., accumulating data in SMTP DATA mode)
+    SkipResponse,
+}
+
+/// Trait for protocol handlers that use a command-response loop (FTP, SMTP)
+/// This trait abstracts the common patterns to reduce duplication
+pub trait CommandLoopHandler {
+    /// Get the session state for this handler
+    fn session_state(&self) -> &SessionState;
+
+    /// Get mutable session state
+    fn session_state_mut(&mut self) -> &mut SessionState;
+
+    /// Get the LLM escalation config
+    fn llm_config(&self) -> &LlmEscalationConfig;
+
+    /// Check if a command is known to this protocol
+    fn is_known_command(&self, command: &str) -> bool;
+
+    /// Get native response for a command, if available
+    fn get_native_response(&mut self, command: &str) -> Option<String>;
+
+    /// Get default error response for unknown commands
+    fn default_error_response(&self) -> &'static str;
+
+    /// Format an LLM response for this protocol
+    fn format_llm_response(&self, response: &str) -> String;
+
+    /// Protocol name for logging
+    fn protocol_name(&self) -> &'static str;
+
+    /// Pre-process command before normal handling. Returns None to continue normal processing,
+    /// or Some(CommandResult) to handle specially (e.g., SMTP DATA mode, QUIT)
+    fn pre_process_command(&mut self, _command: &str) -> Option<(CommandResult, Option<String>)> {
+        None
+    }
+}
+
+/// Run the common command-response loop for protocols like FTP and SMTP.
+/// This extracts the duplicated pattern from individual protocol handlers.
+pub async fn run_command_loop<H, C, S>(
+    handler: &mut H,
+    chat_service: &C,
+    rate_limiter: &RateLimiterRef,
+    stream: &mut S,
+    buffer_size: usize,
+) where
+    H: CommandLoopHandler,
+    C: ChatService,
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let mut buffer = vec![0u8; buffer_size];
+
+    loop {
+        match stream.read(&mut buffer).await {
+            Ok(0) => {
+                info!("{} connection closed", handler.protocol_name());
+                break;
+            }
+            Ok(n) => {
+                let command = String::from_utf8_lossy(&buffer[0..n]).trim().to_string();
+
+                if command.is_empty() {
+                    continue;
+                }
+
+                info!("{} command received: {}", handler.protocol_name(), command);
+
+                handler.session_state_mut().commands_processed += 1;
+                handler.session_state_mut().last_command_time = Some(Instant::now());
+
+                // Allow protocol-specific pre-processing (QUIT, DATA mode, etc.)
+                if let Some((result, response)) = handler.pre_process_command(&command) {
+                    if let Some(resp) = response {
+                        if let Err(e) = stream.write_all(resp.as_bytes()).await {
+                            error!("Failed to send {} response: {}", handler.protocol_name(), e);
+                            break;
+                        }
+                    }
+                    match result {
+                        CommandResult::Exit => break,
+                        CommandResult::SkipResponse => continue,
+                        CommandResult::Continue => {}
+                    }
+                }
+
+                // Determine if we should use LLM or native response
+                let is_known = handler.is_known_command(&command);
+                let use_llm = handler.llm_config().should_use_llm(
+                    &command,
+                    is_known,
+                    handler.session_state(),
+                );
+
+                let response = if use_llm {
+                    info!("{}: Escalating to LLM for command: {}", handler.protocol_name(), command);
+                    handler.session_state_mut().llm_calls_made += 1;
+                    match chat_service.send_message(&command).await {
+                        Ok(resp) => handler.format_llm_response(&resp),
+                        Err(e) => {
+                            error!("LLM error: {}", e);
+                            handler.default_error_response().to_string()
+                        }
+                    }
+                } else if let Some(native_resp) = handler.get_native_response(&command) {
+                    info!("{}: Using native response for command: {}", handler.protocol_name(), command);
+                    native_resp
+                } else {
+                    info!("{}: Unknown command, incrementing counter: {}", handler.protocol_name(), command);
+                    handler.session_state_mut().unknown_commands_count += 1;
+                    handler.default_error_response().to_string()
+                };
+
+                // Apply response delay for realism
+                rate_limiter.apply_response_delay().await;
+
+                // Send response
+                if let Err(e) = stream.write_all(response.as_bytes()).await {
+                    error!("Failed to send {} response: {}", handler.protocol_name(), e);
+                    break;
+                }
+            }
+            Err(e) => {
+                error!("{} read error: {}", handler.protocol_name(), e);
+                break;
+            }
+        }
+    }
+
+    info!(
+        "{} session ended. Commands: {}, LLM calls: {}, Duration: {:?}",
+        handler.protocol_name(),
+        handler.session_state().commands_processed,
+        handler.session_state().llm_calls_made,
+        handler.session_state().session_duration()
+    );
 }
 
 #[cfg(test)]
