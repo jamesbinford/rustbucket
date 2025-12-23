@@ -3,7 +3,7 @@
 mod tests {
     use crate::protocols::http::HttpHandler;
     use crate::protocols::LlmEscalationConfig;
-    use crate::handler::ChatService;
+    use crate::chatgpt::ChatService;
     use crate::rate_limiter::RateLimiter;
     use std::sync::Arc;
 

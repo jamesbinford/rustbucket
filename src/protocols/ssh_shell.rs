@@ -1,5 +1,5 @@
 use super::{SessionState, LlmEscalationConfig};
-use crate::handler::ChatService;
+use crate::chatgpt::ChatService;
 use std::collections::HashSet;
 use tracing::{info, error};
 
@@ -191,6 +191,7 @@ mod tests {
     use super::*;
     use async_trait::async_trait;
 
+    #[derive(Clone)]
     struct MockChatService;
 
     #[async_trait]

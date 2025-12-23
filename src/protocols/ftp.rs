@@ -1,8 +1,8 @@
 use super::{ProtocolHandler, SessionState, LlmEscalationConfig};
-use crate::handler::ChatService;
-use crate::prelude::*;
+use crate::chatgpt::ChatService;
 use crate::rate_limiter::RateLimiterRef;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tracing::{info, error};
 use std::collections::HashSet;
 
 #[cfg(test)]

@@ -26,11 +26,6 @@ struct InstanceIdentity {
 struct SystemInfo {
     ip_address: String,
     operating_system: String,
-    cpu_usage: Option<String>,
-    memory_usage: Option<String>,
-    disk_space: Option<String>,
-    uptime: Option<String>,
-    connections: Option<String>,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -39,16 +34,6 @@ struct RegistrationPayload {
     ip_address: String,
     operating_system: String,
     token: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    cpu_usage: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    memory_usage: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    disk_space: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    uptime: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    connections: Option<String>,
 }
 
 /// Get registration URL from environment variable or config
@@ -78,11 +63,6 @@ async fn collect_system_info() -> SystemInfo {
     SystemInfo {
         ip_address: get_public_ip().await,
         operating_system: get_operating_system(),
-        cpu_usage: get_cpu_usage(),
-        memory_usage: get_memory_usage(),
-        disk_space: get_disk_space(),
-        uptime: get_uptime(),
-        connections: get_connections(),
     }
 }
 
@@ -98,11 +78,6 @@ async fn send_registration_request(
         ip_address: system_info.ip_address.clone(),
         operating_system: system_info.operating_system.clone(),
         token: token.to_string(),
-        cpu_usage: system_info.cpu_usage.clone(),
-        memory_usage: system_info.memory_usage.clone(),
-        disk_space: system_info.disk_space.clone(),
-        uptime: system_info.uptime.clone(),
-        connections: system_info.connections.clone(),
     };
 
     // Ensure URL ends with trailing slash for Django compatibility
@@ -312,31 +287,6 @@ fn get_operating_system() -> String {
     format!("{} ({})", os, arch)
 }
 
-fn get_cpu_usage() -> Option<String> {
-    // For now, return None - would require sysinfo crate or platform-specific code
-    None
-}
-
-fn get_memory_usage() -> Option<String> {
-    // For now, return None - would require sysinfo crate or platform-specific code
-    None
-}
-
-fn get_disk_space() -> Option<String> {
-    // For now, return None - would require sysinfo crate or platform-specific code
-    None
-}
-
-fn get_uptime() -> Option<String> {
-    // For now, return None - uptime would be tracked from service start
-    None
-}
-
-fn get_connections() -> Option<String> {
-    // For now, return None - would require tracking active connections
-    None
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -348,11 +298,6 @@ mod tests {
             ip_address: "192.168.1.100".to_string(),
             operating_system: "linux (x86_64)".to_string(),
             token: "test_token_32_chars_long_string".to_string(),
-            cpu_usage: Some("25%".to_string()),
-            memory_usage: Some("512MB".to_string()),
-            disk_space: Some("50GB".to_string()),
-            uptime: Some("3600".to_string()),
-            connections: Some("5".to_string()),
         };
 
         let json_result = serde_json::to_string(&payload);

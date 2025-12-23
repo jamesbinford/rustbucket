@@ -3,7 +3,7 @@
 mod tests {
     use crate::protocols::ssh_shell::SshShellSimulator;
     use crate::protocols::LlmEscalationConfig;
-    use crate::handler::ChatService;
+    use crate::chatgpt::ChatService;
 
     // Mock ChatService for testing
     #[derive(Clone)]

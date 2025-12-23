@@ -1,6 +1,6 @@
 use super::ssh_shell::SshShellSimulator;
 use super::LlmEscalationConfig;
-use crate::handler::ChatService;
+use crate::chatgpt::ChatService;
 use crate::rate_limiter::RateLimiterRef;
 use russh::server::{Auth, Msg, Server as SshServer, Session};
 use russh::{Channel, ChannelId, CryptoVec};

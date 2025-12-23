@@ -1,9 +1,14 @@
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
-use crate::prelude::*;
-use crate::handler::ChatService;
+use tracing::{info, error};
 use crate::config::LlmConfig;
+
+/// ChatService trait for sending messages to an LLM backend
+#[async_trait::async_trait]
+pub trait ChatService: Clone + Send + Sync {
+    async fn send_message(&self, message: &str) -> Result<String, String>;
+}
 
 #[derive(Serialize, Debug)]
 struct ChatGPTRequest<'a> {
