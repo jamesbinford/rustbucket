@@ -11,16 +11,13 @@ exclude = [
 ]
 
 [dependencies]
-tokio = { version = "1.45.1", features = ["full"] } # Updated to address RUSTSEC-2025-0023 (yanked) and get latest fixes
+tokio = { version = "1.45.1", features = ["net", "rt-multi-thread", "time", "sync", "io-util", "macros"] }
 serde = { version = "1.0.214", features = ["derive"] }
-toml = "0.8.19" # Will be updated by `cargo update` if a newer compatible version resolves transitive issues
-figment = { version = "0.10.19", features = ["toml"] } # Will be updated by `cargo update`
 reqwest = { version = "0.12.9", features = ["json"] } # Will be updated by `cargo update`
 config = "0.14.1" # Will be updated by `cargo update`
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
-tracing-appender = "0.2.3" # Reverted, will attempt to update crossbeam-channel directly
-flate2 = "1.1.2"
+tracing-appender = "0.2.3"
 aws-sdk-s3 = "1.92.0" # Will be updated by `cargo update`
 aws-smithy-types = "1.3.2" # Will be updated by `cargo update`
 aws-config = "1.8.0" # Will be updated by `cargo update`
@@ -31,7 +28,8 @@ serde_json = "1.0"
 russh = "0.55"
 
 [dev-dependencies]
-tokio-test = "0.4.4" # Will be updated by `cargo update` if necessary
-mockito = "1.5.0" # For mocking HTTP requests in tests
-tempfile = "3.8.0" # For creating temporary config files in tests
-serde_json = "1.0" # For JSON serialization tests
+tokio-test = "0.4.4"
+mockito = "1.5.0"
+tempfile = "3.8.0"
+serde_json = "1.0"
+toml = "0.8"
