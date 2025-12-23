@@ -29,7 +29,14 @@ use_llm_for_human_like = true
 
 [registration]
 # Registration is completely optional. To enable registration, set the environment variable:
-#RUSTBUCKET_REGISTRY_URL=http://localhost:45609/api/register/
+#   RUSTBUCKET_REGISTRY_URL=http://localhost:45609/api/register/
+#
+# API key authentication (required if the registry enforces authentication):
+#   RUSTBUCKET_API_KEY=your-api-key-here
+#
+# Or configure directly in this file:
+# rustbucket_registry_url = "http://localhost:45609/api/register/"
+# api_key = "your-api-key-here"
 
 [rate_limiting]
 # Rate limiting configuration to prevent detection and resource exhaustion

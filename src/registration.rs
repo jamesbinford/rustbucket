@@ -56,6 +56,28 @@ fn get_registration_url(config: &RegistrationConfig) -> Option<String> {
     None
 }
 
+/// Get API key from environment variable or config
+fn get_api_key(config: &RegistrationConfig) -> Option<String> {
+    // Check environment variable first
+    if let Ok(key) = env::var("RUSTBUCKET_API_KEY") {
+        if !key.is_empty() {
+            info!("Using API key from environment variable");
+            return Some(key);
+        }
+    }
+
+    // Fallback to config
+    if let Some(key) = &config.api_key {
+        if !key.is_empty() {
+            info!("Using API key from Config.toml");
+            return Some(key.clone());
+        }
+    }
+
+    warn!("No API key configured. Registration may fail if the registry requires authentication.");
+    None
+}
+
 /// Collect system information for registration
 async fn collect_system_info() -> SystemInfo {
     info!("Gathering system information...");
@@ -72,6 +94,7 @@ async fn send_registration_request(
     name: &str,
     token: &str,
     system_info: &SystemInfo,
+    api_key: Option<&str>,
 ) -> bool {
     let payload = RegistrationPayload {
         name: name.to_string(),
@@ -95,7 +118,14 @@ async fn send_registration_request(
     info!("Posting registration data to URL: {}", normalized_url);
     info!("Registration payload: {:?}", payload);
 
-    match client.post(&normalized_url).json(&payload).send().await {
+    // Build request with optional API key authentication
+    let mut request = client.post(&normalized_url).json(&payload);
+    if let Some(key) = api_key {
+        request = request.header("X-API-Key", key);
+        info!("Including API key in registration request");
+    }
+
+    match request.send().await {
         Ok(response) => {
             let status = response.status();
             let response_text = response
@@ -104,9 +134,19 @@ async fn send_registration_request(
                 .unwrap_or_else(|_| "Failed to read response body".to_string());
 
             match status {
-                reqwest::StatusCode::OK => {
+                reqwest::StatusCode::OK | reqwest::StatusCode::CREATED => {
                     info!("Successfully registered instance '{}'. Server response: {}", name, response_text);
                     true
+                }
+                reqwest::StatusCode::UNAUTHORIZED => {
+                    error!("Registration failed: Authentication required (401 Unauthorized). Please check your API key.");
+                    error!("Server response: {}", response_text);
+                    false
+                }
+                reqwest::StatusCode::FORBIDDEN => {
+                    error!("Registration failed: Access denied (403 Forbidden). Your API key may be invalid or expired.");
+                    error!("Server response: {}", response_text);
+                    false
                 }
                 reqwest::StatusCode::NOT_FOUND => {
                     error!("Registration failed: Bad URL (404 Not Found) for {}. Server response: {}", normalized_url, response_text);
@@ -212,6 +252,9 @@ pub async fn register_instance(config: &RegistrationConfig) {
         }
     };
 
+    // Get API key for authentication
+    let api_key = get_api_key(config);
+
     // Load or create persistent identity (survives restarts)
     let identity = load_or_create_identity();
     info!(
@@ -229,6 +272,7 @@ pub async fn register_instance(config: &RegistrationConfig) {
         &identity.name,
         &identity.token,
         &system_info,
+        api_key.as_deref(),
     )
     .await;
 }

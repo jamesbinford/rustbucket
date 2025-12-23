@@ -101,6 +101,7 @@ impl Default for RateLimitConfig {
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct RegistrationConfig {
     pub rustbucket_registry_url: Option<String>,
+    pub api_key: Option<String>,
 }
 
 /// S3 logging configuration
