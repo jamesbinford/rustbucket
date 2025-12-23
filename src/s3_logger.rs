@@ -42,6 +42,12 @@ impl S3Logger {
             config.delete_after_upload = delete.to_lowercase() == "true";
         }
 
+        if let Ok(minutes) = std::env::var("S3_UPLOAD_INTERVAL_MINUTES") {
+            if let Ok(mins) = minutes.parse::<u64>() {
+                config.upload_interval_minutes = Some(mins);
+            }
+        }
+
         let log_directory = general_config.log_directory.clone();
 
         // Initialize S3 client if bucket is configured
@@ -93,11 +99,19 @@ impl S3Logger {
         info!("Starting S3 log uploader background task");
         info!("S3 Bucket: {:?}", self.config.bucket_name);
         info!("Instance: {}", self.instance_name);
-        info!("Upload interval: {} hours", self.config.upload_interval_hours);
+
+        // Calculate upload interval (minutes takes precedence over hours)
+        let upload_interval = if let Some(minutes) = self.config.upload_interval_minutes {
+            info!("Upload interval: {} minutes", minutes);
+            Duration::from_secs(minutes * 60)
+        } else {
+            info!("Upload interval: {} hours", self.config.upload_interval_hours);
+            Duration::from_secs(self.config.upload_interval_hours * 3600)
+        };
+
         info!("Delete after upload: {}", self.config.delete_after_upload);
 
         tokio::spawn(async move {
-            let upload_interval = Duration::from_secs(self.config.upload_interval_hours * 3600);
             let retry_interval = Duration::from_secs(self.config.retry_interval_hours * 3600);
 
             loop {
@@ -281,6 +295,7 @@ mod tests {
             region: Some("us-east-1".to_string()),
             prefix: Some("logs".to_string()),
             upload_interval_hours: 12,
+            upload_interval_minutes: Some(30),
             retry_interval_hours: 6,
             delete_after_upload: true,
         };
@@ -290,6 +305,7 @@ mod tests {
         assert_eq!(config.region, cloned.region);
         assert_eq!(config.prefix, cloned.prefix);
         assert_eq!(config.upload_interval_hours, cloned.upload_interval_hours);
+        assert_eq!(config.upload_interval_minutes, cloned.upload_interval_minutes);
         assert_eq!(config.retry_interval_hours, cloned.retry_interval_hours);
         assert_eq!(config.delete_after_upload, cloned.delete_after_upload);
     }

@@ -112,6 +112,8 @@ pub struct S3Config {
     pub prefix: Option<String>,
     #[serde(default = "default_upload_interval")]
     pub upload_interval_hours: u64,
+    /// Optional: upload interval in minutes (overrides hours if set)
+    pub upload_interval_minutes: Option<u64>,
     #[serde(default = "default_retry_interval")]
     pub retry_interval_hours: u64,
     #[serde(default)]
@@ -128,6 +130,7 @@ impl Default for S3Config {
             region: None,
             prefix: None,
             upload_interval_hours: default_upload_interval(),
+            upload_interval_minutes: None,
             retry_interval_hours: default_retry_interval(),
             delete_after_upload: false,
         }
