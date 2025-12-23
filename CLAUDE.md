@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Startup Actions
+- Any time we begin a new session check into our Github issues and see if any are ready for closure.
+- After checking for closure opportunities, help me prioritize which issue to work on next.
+
 ## Build and Development Commands
 
 - Build: `cargo build --release`

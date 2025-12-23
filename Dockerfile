@@ -44,13 +44,18 @@ COPY --from=builder /app/target/release/rustbucket /usr/local/bin/rustbucket
 # Copy config file
 COPY Config.toml.example ./Config.toml
 
-# Expose honeypot ports
-EXPOSE 22/tcp
-EXPOSE 21/tcp
-EXPOSE 25/tcp
-EXPOSE 80/tcp
-EXPOSE 53/tcp
-EXPOSE 53/udp
+# Default ports (high ports for unprivileged container operation)
+# Override with -e SSH_PORT=22 etc. when running with --privileged or as root
+ENV SSH_PORT=2222
+ENV FTP_PORT=2121
+ENV SMTP_PORT=2525
+ENV HTTP_PORT=8080
+
+# Expose default high ports (map to any host port with -p)
+EXPOSE 2222/tcp
+EXPOSE 2121/tcp
+EXPOSE 2525/tcp
+EXPOSE 8080/tcp
 
 # Create volume for logs (persists across container restarts)
 VOLUME ["/app/logs"]

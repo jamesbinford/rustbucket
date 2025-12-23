@@ -49,11 +49,19 @@ async fn start_ssh_server(chatgpt: ChatGPT, llm_config: LlmEscalationConfig, rat
     Ok(())
 }
 
+/// Protocol types for the honeypot
+#[derive(Clone, Copy, Debug)]
+enum Protocol {
+    Smtp,
+    Ftp,
+    Http,
+}
+
 /// Start a TCP listener for non-SSH protocols (HTTP, FTP, SMTP)
-async fn start_listener(addr: &str, rate_limiter: RateLimiterRef) -> tokio::io::Result<()> {
+async fn start_listener(addr: &str, protocol: Protocol, rate_limiter: RateLimiterRef) -> tokio::io::Result<()> {
     let listener = TcpListener::bind(addr).await?;
     let listener_addr = listener.local_addr()?;
-    println!("Listening on {}", listener_addr);
+    println!("Listening on {} ({:?})", listener_addr, protocol);
 
     // Instantiate ChatGPT
     let chatgpt = ChatGPT::new().unwrap();
@@ -80,24 +88,21 @@ async fn start_listener(addr: &str, rate_limiter: RateLimiterRef) -> tokio::io::
                     // Apply initial response delay to simulate real server
                     rate_limiter.apply_response_delay().await;
 
-                    match listener_addr.port() {
-                        25 => {
-                            info!("Actor attempted to connect to port 25 - SMTP");
+                    match protocol {
+                        Protocol::Smtp => {
+                            info!("Actor attempted to connect - SMTP");
                             let mut handler = SmtpHandler::new(chatgpt, llm_config, rate_limiter.clone());
                             handler.handle_connection(stream).await;
                         }
-                        80 => {
-                            info!("Actor attempted to connect to port 80 - HTTP");
+                        Protocol::Http => {
+                            info!("Actor attempted to connect - HTTP");
                             let mut handler = HttpHandler::new(chatgpt, llm_config, rate_limiter.clone());
                             handler.handle_connection(stream).await;
                         }
-                        21 => {
-                            info!("Actor attempted to connect to port 21 - FTP");
+                        Protocol::Ftp => {
+                            info!("Actor attempted to connect - FTP");
                             let mut handler = FtpHandler::new(chatgpt, llm_config, rate_limiter.clone());
                             handler.handle_connection(stream).await;
-                        }
-                        _ => {
-                            error!("Actor connected to an unexpected port: {}", listener_addr.port());
                         }
                     }
 
@@ -162,15 +167,24 @@ async fn main() -> tokio::io::Result<()> {
         }
     });
 
-    // Start other protocol listeners (SMTP, HTTP, FTP)
-    let other_ports = vec!["0.0.0.0:25", "0.0.0.0:21", "0.0.0.0:80"];
+    // Start other protocol listeners (SMTP, HTTP, FTP) with configurable ports
+    let smtp_port = std::env::var("SMTP_PORT").unwrap_or_else(|_| "25".to_string());
+    let ftp_port = std::env::var("FTP_PORT").unwrap_or_else(|_| "21".to_string());
+    let http_port = std::env::var("HTTP_PORT").unwrap_or_else(|_| "80".to_string());
+
+    let listeners = vec![
+        (format!("0.0.0.0:{}", smtp_port), Protocol::Smtp),
+        (format!("0.0.0.0:{}", ftp_port), Protocol::Ftp),
+        (format!("0.0.0.0:{}", http_port), Protocol::Http),
+    ];
     let mut handles = vec![ssh_handle];
 
-    for port in other_ports {
+    for (addr, protocol) in listeners {
         let rate_limiter = rate_limiter.clone();
+        let addr_clone = addr.clone();
         let handle = tokio::spawn(async move {
-            if let Err(e) = start_listener(port, rate_limiter).await {
-                error!("Listener for {} failed: {}", port, e);
+            if let Err(e) = start_listener(&addr, protocol, rate_limiter).await {
+                error!("Listener for {} failed: {}", addr_clone, e);
             }
         });
         handles.push(handle);
