@@ -9,18 +9,10 @@ use std::env;
 use std::fs;
 use std::path::Path;
 
+use crate::config::RegistrationConfig;
+
 /// File path for persisting instance identity across restarts
 const IDENTITY_FILE: &str = ".rustbucket_identity";
-
-#[derive(Debug, Deserialize)]
-struct RegistrationConfig {
-    rustbucket_registry_url: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct AppConfig {
-    registration: Option<RegistrationConfig>,
-}
 
 /// Persistent identity for this rustbucket instance
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,35 +51,24 @@ struct RegistrationPayload {
     connections: Option<String>,
 }
 
-/// Load registration URL from environment variables and config file
-fn load_registration_url() -> Option<String> {
+/// Get registration URL from environment variable or config
+fn get_registration_url(config: &RegistrationConfig) -> Option<String> {
     // Check environment variable first
     if let Ok(url) = env::var("RUSTBUCKET_REGISTRY_URL") {
         info!("Using registry URL from environment variable: {}", url);
         return Some(url);
     }
 
-    // Fallback to config file
-    let config_result = config::Config::builder()
-        .add_source(config::File::with_name("Config").required(false))
-        .build()
-        .and_then(|config_val| config_val.try_deserialize::<AppConfig>());
-
-    match config_result {
-        Ok(app_cfg) => {
-            if let Some(url) = app_cfg.registration.and_then(|reg| reg.rustbucket_registry_url) {
-                info!("Using registry URL from Config.toml: {}", url);
-                Some(url)
-            } else {
-                info!("No rustbucket_registry_url configured. Registration is optional - skipping.");
-                None
-            }
-        }
-        Err(e) => {
-            warn!("Failed to load configuration: {}. Skipping registration.", e);
-            None
+    // Fallback to config
+    if let Some(url) = &config.rustbucket_registry_url {
+        if !url.is_empty() {
+            info!("Using registry URL from Config.toml: {}", url);
+            return Some(url.clone());
         }
     }
+
+    info!("No rustbucket_registry_url configured. Registration is optional - skipping.");
+    None
 }
 
 /// Collect system information for registration
@@ -244,11 +225,11 @@ fn load_or_create_identity() -> InstanceIdentity {
     identity
 }
 
-pub async fn register_instance() {
+pub async fn register_instance(config: &RegistrationConfig) {
     info!("Checking registration configuration...");
 
-    // Load registry URL
-    let registry_url = match load_registration_url() {
+    // Get registry URL
+    let registry_url = match get_registration_url(config) {
         Some(url) => url,
         None => {
             info!("No registry URL configured. Skipping registration.");

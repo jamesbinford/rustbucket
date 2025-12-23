@@ -1,22 +1,9 @@
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
-use config::{Config, File, FileFormat};
 use crate::prelude::*;
-use crate::handler::ChatService; // Import the new trait
-
-// Struct for loading configuration
-#[derive(Debug, Deserialize)]
-struct OpenAIConfig {
-	model: Option<String>,
-	static_messages: StaticMessages,
-}
-
-#[derive(Debug, Deserialize, Clone)]
-struct StaticMessages {
-	message1: String,
-	message2: String,
-}
+use crate::handler::ChatService;
+use crate::config::LlmConfig;
 
 #[derive(Serialize, Debug)]
 struct ChatGPTRequest<'a> {
@@ -49,45 +36,24 @@ struct MessageResponse {
 pub struct ChatGPT {
 	api_key: String,
 	model: String,
-	static_messages: StaticMessages,
+	static_messages: crate::config::StaticMessages,
 	client: Client,
 }
 
 impl ChatGPT {
-	const CONFIG_FILE: &'static str = "Config.toml";
-	
-	pub fn new() -> Result<ChatGPT, Box<dyn Error>> {
-		Self::from_config(Self::CONFIG_FILE)
-	}
-	
-	pub fn from_config(config_file: &str) -> Result<ChatGPT, Box<dyn Error>> {
-		// Load configuration from the specified config file
-		let settings = Config::builder()
-			.add_source(File::from(std::path::Path::new(config_file)).format(FileFormat::Toml))
-			.build()?;
-
-		let llm_config_from_file: Option<OpenAIConfig> = settings.get("llm").ok();
-
+	/// Create a new ChatGPT instance from the provided LlmConfig
+	/// API key must be set in CHATGPT_API_KEY environment variable
+	pub fn new(llm_config: &LlmConfig) -> Result<ChatGPT, Box<dyn Error>> {
 		let api_key = std::env::var("CHATGPT_API_KEY")
 			.map_err(|_| Box::new(std::io::Error::new(
 				std::io::ErrorKind::NotFound,
 				"ChatGPT API key not found in environment variable CHATGPT_API_KEY",
 			)))?;
 
-		let llm_config = llm_config_from_file.ok_or_else(|| {
-			Box::new(std::io::Error::new(
-				std::io::ErrorKind::NotFound,
-				"LLM configuration not found in config file",
-			))
-		})?;
-
-		let model = llm_config.model.unwrap_or_else(|| "gpt-3.5-turbo".to_string());
-		let static_messages = llm_config.static_messages;
-
 		Ok(ChatGPT {
 			api_key,
-			model,
-			static_messages,
+			model: llm_config.model.clone(),
+			static_messages: llm_config.static_messages.clone(),
 			client: Client::new(),
 		})
 	}
@@ -171,9 +137,8 @@ impl ChatService for ChatGPT {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::{LlmConfig, StaticMessages};
     use std::env;
-    use tempfile::NamedTempFile;
-    use std::io::Write;
     use std::sync::{Mutex, OnceLock};
 
     // Mutex to ensure tests that modify environment variables run serially
@@ -194,18 +159,18 @@ mod tests {
     }
 
     #[test]
-    fn test_openai_config_struct() {
+    fn test_llm_config_struct() {
         let messages = StaticMessages {
             message1: "You are a server".to_string(),
             message2: "Respond as a server".to_string(),
         };
 
-        let config = OpenAIConfig {
-            model: Some("gpt-4".to_string()),
+        let config = LlmConfig {
+            model: "gpt-4".to_string(),
             static_messages: messages,
         };
 
-        assert_eq!(config.model, Some("gpt-4".to_string()));
+        assert_eq!(config.model, "gpt-4");
         assert_eq!(config.static_messages.message1, "You are a server");
         assert_eq!(config.static_messages.message2, "Respond as a server");
     }
@@ -253,66 +218,39 @@ mod tests {
     }
 
     #[test]
-    fn test_from_config_missing_api_key() {
+    fn test_new_missing_api_key() {
         let _guard = env_lock().lock().unwrap();
-
-        // Create a temporary config file
-        let mut temp_file = NamedTempFile::new().unwrap();
-        writeln!(temp_file, "[llm]").unwrap();
-        writeln!(temp_file, "[llm.static_messages]").unwrap();
-        writeln!(temp_file, "message1 = \"Test message 1\"").unwrap();
-        writeln!(temp_file, "message2 = \"Test message 2\"").unwrap();
-        temp_file.flush().unwrap();
 
         // Ensure CHATGPT_API_KEY is not set
         env::remove_var("CHATGPT_API_KEY");
 
-        let result = ChatGPT::from_config(temp_file.path().to_str().unwrap());
+        let llm_config = LlmConfig::default();
+        let result = ChatGPT::new(&llm_config);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("ChatGPT API key"));
     }
 
     #[test]
-    fn test_from_config_missing_llm_section() {
+    fn test_new_success() {
         let _guard = env_lock().lock().unwrap();
-
-        // Create a temporary config file without [llm] section
-        let mut temp_file = NamedTempFile::new().unwrap();
-        writeln!(temp_file, "[other]").unwrap();
-        writeln!(temp_file, "key = \"value\"").unwrap();
-        temp_file.flush().unwrap();
-
-        // Set API key
-        env::set_var("CHATGPT_API_KEY", "test_key");
-
-        let result = ChatGPT::from_config(temp_file.path().to_str().unwrap());
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("LLM configuration"));
-
-        // Clean up
-        env::remove_var("CHATGPT_API_KEY");
-    }
-
-    #[test]
-    fn test_from_config_success() {
-        let _guard = env_lock().lock().unwrap();
-
-        // Create a proper config file
-        let mut temp_file = NamedTempFile::new().unwrap();
-        writeln!(temp_file, "[llm]").unwrap();
-        writeln!(temp_file, "[llm.static_messages]").unwrap();
-        writeln!(temp_file, "message1 = \"You are an Ubuntu Server.\"").unwrap();
-        writeln!(temp_file, "message2 = \"Respond as an Ubuntu server would.\"").unwrap();
-        temp_file.flush().unwrap();
 
         // Set API key
         env::set_var("CHATGPT_API_KEY", "sk-test123456789");
 
-        let result = ChatGPT::from_config(temp_file.path().to_str().unwrap());
+        let llm_config = LlmConfig {
+            model: "gpt-4".to_string(),
+            static_messages: StaticMessages {
+                message1: "You are an Ubuntu Server.".to_string(),
+                message2: "Respond as an Ubuntu server would.".to_string(),
+            },
+        };
+
+        let result = ChatGPT::new(&llm_config);
         assert!(result.is_ok());
 
         let chatgpt = result.unwrap();
         assert_eq!(chatgpt.api_key, "sk-test123456789");
+        assert_eq!(chatgpt.model, "gpt-4");
         assert_eq!(chatgpt.static_messages.message1, "You are an Ubuntu Server.");
         assert_eq!(chatgpt.static_messages.message2, "Respond as an Ubuntu server would.");
 
@@ -326,14 +264,15 @@ mod tests {
 
         env::set_var("CHATGPT_API_KEY", "test_key");
 
-        let mut temp_file = NamedTempFile::new().unwrap();
-        writeln!(temp_file, "[llm]").unwrap();
-        writeln!(temp_file, "[llm.static_messages]").unwrap();
-        writeln!(temp_file, "message1 = \"Message 1\"").unwrap();
-        writeln!(temp_file, "message2 = \"Message 2\"").unwrap();
-        temp_file.flush().unwrap();
+        let llm_config = LlmConfig {
+            model: "gpt-3.5-turbo".to_string(),
+            static_messages: StaticMessages {
+                message1: "Message 1".to_string(),
+                message2: "Message 2".to_string(),
+            },
+        };
 
-        let chatgpt = ChatGPT::from_config(temp_file.path().to_str().unwrap()).unwrap();
+        let chatgpt = ChatGPT::new(&llm_config).unwrap();
         let cloned = chatgpt.clone();
 
         assert_eq!(chatgpt.api_key, cloned.api_key);
@@ -349,14 +288,15 @@ mod tests {
 
         env::set_var("CHATGPT_API_KEY", "sk-test123");
 
-        let mut temp_file = NamedTempFile::new().unwrap();
-        writeln!(temp_file, "[llm]").unwrap();
-        writeln!(temp_file, "[llm.static_messages]").unwrap();
-        writeln!(temp_file, "message1 = \"System msg 1\"").unwrap();
-        writeln!(temp_file, "message2 = \"System msg 2\"").unwrap();
-        temp_file.flush().unwrap();
+        let llm_config = LlmConfig {
+            model: "gpt-3.5-turbo".to_string(),
+            static_messages: StaticMessages {
+                message1: "System msg 1".to_string(),
+                message2: "System msg 2".to_string(),
+            },
+        };
 
-        let chatgpt = ChatGPT::from_config(temp_file.path().to_str().unwrap()).unwrap();
+        let chatgpt = ChatGPT::new(&llm_config).unwrap();
 
         // We can't easily test the actual API call without mocking,
         // but we can verify the struct was created correctly

@@ -1,36 +1,12 @@
 use aws_config::BehaviorVersion;
 use aws_sdk_s3::Client as S3Client;
 use aws_sdk_s3::primitives::ByteStream;
-use config::{Config, File};
-use serde::Deserialize;
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 use tokio::time::sleep;
 use tracing::{info, error, warn};
 
-/// S3 logging configuration
-#[derive(Debug, Clone, Deserialize)]
-pub struct S3Config {
-    pub bucket_name: Option<String>,
-    pub region: Option<String>,
-    pub prefix: Option<String>,
-    pub upload_interval_hours: u64,
-    pub retry_interval_hours: u64,
-    pub delete_after_upload: bool,
-}
-
-impl Default for S3Config {
-    fn default() -> Self {
-        Self {
-            bucket_name: None,
-            region: None,
-            prefix: None,
-            upload_interval_hours: 24,
-            retry_interval_hours: 24,
-            delete_after_upload: false,
-        }
-    }
-}
+use crate::config::{S3Config, GeneralConfig};
 
 /// S3 Logger for uploading daily logs
 pub struct S3Logger {
@@ -41,17 +17,13 @@ pub struct S3Logger {
 }
 
 impl S3Logger {
-    /// Create a new S3Logger instance
-    pub async fn new(instance_name: String) -> Result<Self, String> {
-        // Load configuration from file
-        let settings = Config::builder()
-            .add_source(File::with_name("Config").required(false))
-            .build()
-            .map_err(|e| e.to_string())?;
-
-        let mut config: S3Config = settings
-            .get("s3_logging")
-            .unwrap_or_else(|_| S3Config::default());
+    /// Create a new S3Logger instance with the provided configuration
+    pub async fn new(
+        instance_name: String,
+        s3_config: S3Config,
+        general_config: &GeneralConfig,
+    ) -> Result<Self, String> {
+        let mut config = s3_config;
 
         // Override with environment variables if present
         if let Ok(bucket) = std::env::var("S3_BUCKET_NAME") {
@@ -70,10 +42,7 @@ impl S3Logger {
             config.delete_after_upload = delete.to_lowercase() == "true";
         }
 
-        // Get log directory from config or use default
-        let log_directory = settings
-            .get_string("general.log_directory")
-            .unwrap_or_else(|_| "./logs".to_string());
+        let log_directory = general_config.log_directory.clone();
 
         // Initialize S3 client if bucket is configured
         let has_bucket = matches!(&config.bucket_name, Some(name) if !name.is_empty());
@@ -363,7 +332,9 @@ mod tests {
         env::remove_var("S3_REGION");
 
         let instance_name = "test-instance".to_string();
-        let result = S3Logger::new(instance_name).await;
+        let s3_config = S3Config::default();
+        let general_config = GeneralConfig::default();
+        let result = S3Logger::new(instance_name, s3_config, &general_config).await;
 
         // Should succeed even if S3 is not configured
         assert!(result.is_ok());
@@ -382,7 +353,9 @@ mod tests {
         env::set_var("S3_DELETE_AFTER_UPLOAD", "true");
 
         let instance_name = "test-instance".to_string();
-        let result = S3Logger::new(instance_name.clone()).await;
+        let s3_config = S3Config::default();
+        let general_config = GeneralConfig::default();
+        let result = S3Logger::new(instance_name.clone(), s3_config, &general_config).await;
 
         assert!(result.is_ok());
         let logger = result.unwrap();
@@ -407,7 +380,9 @@ mod tests {
         env::remove_var("S3_BUCKET_NAME");
 
         let instance_name = "test-instance".to_string();
-        let logger = S3Logger::new(instance_name).await.unwrap();
+        let s3_config = S3Config::default();
+        let general_config = GeneralConfig::default();
+        let logger = S3Logger::new(instance_name, s3_config, &general_config).await.unwrap();
 
         // Should not be enabled without bucket name
         assert!(!logger.is_enabled());
@@ -420,7 +395,9 @@ mod tests {
         env::remove_var("S3_BUCKET_NAME");
 
         let instance_name = "test-instance".to_string();
-        let logger = S3Logger::new(instance_name).await.unwrap();
+        let s3_config = S3Config::default();
+        let general_config = GeneralConfig::default();
+        let logger = S3Logger::new(instance_name, s3_config, &general_config).await.unwrap();
 
         let result = logger.upload_now().await;
         assert!(result.is_err());

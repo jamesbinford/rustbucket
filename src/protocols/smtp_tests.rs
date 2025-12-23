@@ -8,7 +8,7 @@ mod tests {
     use std::sync::Arc;
 
     fn test_rate_limiter() -> Arc<RateLimiter> {
-        Arc::new(RateLimiter::new())
+        Arc::new(RateLimiter::default())
     }
 
     // Mock ChatService for testing

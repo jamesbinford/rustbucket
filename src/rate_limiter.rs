@@ -1,6 +1,4 @@
-use config::{Config, File};
 use rand::Rng;
-use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::sync::Arc;
@@ -8,56 +6,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use tracing::info;
 
-/// Configuration for rate limiting behavior
-#[derive(Debug, Clone, Deserialize)]
-pub struct RateLimitConfig {
-    /// Enable/disable rate limiting entirely
-    #[serde(default = "default_enabled")]
-    pub enabled: bool,
-    /// Maximum concurrent connections per IP
-    #[serde(default = "default_max_connections")]
-    pub max_connections_per_ip: u32,
-    /// Maximum new connections per IP per minute
-    #[serde(default = "default_rate")]
-    pub connection_rate_per_minute: u32,
-    /// Number of connections before temporary ban
-    #[serde(default = "default_ban_threshold")]
-    pub ban_threshold: u32,
-    /// Duration of temporary ban in seconds
-    #[serde(default = "default_ban_duration")]
-    pub ban_duration_seconds: u64,
-    /// Response delay range [min_ms, max_ms]
-    #[serde(default = "default_delay")]
-    pub response_delay_ms: (u64, u64),
-    /// IPs that bypass rate limiting entirely
-    #[serde(default)]
-    pub allowlist: Vec<String>,
-    /// IPs that are always blocked
-    #[serde(default)]
-    pub blocklist: Vec<String>,
-}
-
-fn default_enabled() -> bool { true }
-fn default_max_connections() -> u32 { 5 }
-fn default_rate() -> u32 { 10 }
-fn default_ban_threshold() -> u32 { 50 }
-fn default_ban_duration() -> u64 { 3600 }
-fn default_delay() -> (u64, u64) { (100, 300) }
-
-impl Default for RateLimitConfig {
-    fn default() -> Self {
-        Self {
-            enabled: default_enabled(),
-            max_connections_per_ip: default_max_connections(),
-            connection_rate_per_minute: default_rate(),
-            ban_threshold: default_ban_threshold(),
-            ban_duration_seconds: default_ban_duration(),
-            response_delay_ms: default_delay(),
-            allowlist: Vec::new(),
-            blocklist: Vec::new(),
-        }
-    }
-}
+use crate::config::RateLimitConfig;
 
 /// Per-IP connection state
 #[derive(Debug, Clone)]
@@ -101,10 +50,8 @@ pub struct RateLimiter {
 pub type RateLimiterRef = Arc<RateLimiter>;
 
 impl RateLimiter {
-    /// Create new RateLimiter, loading config from Config.toml
-    pub fn new() -> Self {
-        let config = Self::load_config();
-
+    /// Create new RateLimiter with the provided configuration
+    pub fn new(config: RateLimitConfig) -> Self {
         // Parse allowlist/blocklist IPs
         let allowlist: HashSet<IpAddr> = config.allowlist.iter()
             .filter_map(|s| s.parse().ok())
@@ -127,17 +74,6 @@ impl RateLimiter {
             ip_states: RwLock::new(HashMap::new()),
             allowlist,
             blocklist,
-        }
-    }
-
-    fn load_config() -> RateLimitConfig {
-        let settings = Config::builder()
-            .add_source(File::with_name("Config").required(false))
-            .build();
-
-        match settings {
-            Ok(s) => s.get("rate_limiting").unwrap_or_default(),
-            Err(_) => RateLimitConfig::default(),
         }
     }
 
@@ -252,7 +188,7 @@ impl RateLimiter {
 
 impl Default for RateLimiter {
     fn default() -> Self {
-        Self::new()
+        Self::new(RateLimitConfig::default())
     }
 }
 
@@ -281,7 +217,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_rate_limiter_allows_connection() {
-        let limiter = RateLimiter::new();
+        let limiter = RateLimiter::default();
         let ip: IpAddr = "192.168.1.1".parse().unwrap();
 
         // First connection should be allowed
@@ -293,7 +229,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_rate_limiter_concurrent_limit() {
-        let limiter = RateLimiter::new();
+        let limiter = RateLimiter::default();
         let ip: IpAddr = "192.168.1.2".parse().unwrap();
 
         // Fill up to max connections (default 5)
@@ -311,7 +247,7 @@ mod tests {
 
     #[test]
     fn test_response_delay_range() {
-        let limiter = RateLimiter::new();
+        let limiter = RateLimiter::default();
 
         for _ in 0..10 {
             let delay = limiter.get_response_delay();

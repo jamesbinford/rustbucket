@@ -1,6 +1,7 @@
 mod handler;
 mod prelude;
 mod chatgpt;
+mod config;
 mod registration;
 mod protocols;
 mod s3_logger;
@@ -11,6 +12,7 @@ use tracing::{info, error};
 use tracing_subscriber::EnvFilter;
 use tracing_appender::rolling;
 use chatgpt::ChatGPT;
+use config::AppConfig;
 use protocols::{ProtocolHandler, LlmEscalationConfig};
 use protocols::ssh::SshHoneypotServer;
 use protocols::http::HttpHandler;
@@ -58,14 +60,19 @@ enum Protocol {
 }
 
 /// Start a TCP listener for non-SSH protocols (HTTP, FTP, SMTP)
-async fn start_listener(addr: &str, protocol: Protocol, rate_limiter: RateLimiterRef) -> tokio::io::Result<()> {
+async fn start_listener(
+    addr: &str,
+    protocol: Protocol,
+    rate_limiter: RateLimiterRef,
+    llm_config: config::LlmConfig,
+) -> tokio::io::Result<()> {
     let listener = TcpListener::bind(addr).await?;
     let listener_addr = listener.local_addr()?;
     println!("Listening on {} ({:?})", listener_addr, protocol);
 
-    // Instantiate ChatGPT
-    let chatgpt = ChatGPT::new().unwrap();
-    let llm_config = LlmEscalationConfig::default();
+    // Instantiate ChatGPT with config
+    let chatgpt = ChatGPT::new(&llm_config).unwrap();
+    let llm_escalation = LlmEscalationConfig::default();
 
     loop {
         match listener.accept().await {
@@ -81,7 +88,7 @@ async fn start_listener(addr: &str, protocol: Protocol, rate_limiter: RateLimite
 
                 println!("New connection on {} from {}", listener_addr, client_addr);
                 let chatgpt = chatgpt.clone();
-                let llm_config = llm_config.clone();
+                let llm_escalation = llm_escalation.clone();
                 let rate_limiter = rate_limiter.clone();
 
                 task::spawn(async move {
@@ -91,17 +98,17 @@ async fn start_listener(addr: &str, protocol: Protocol, rate_limiter: RateLimite
                     match protocol {
                         Protocol::Smtp => {
                             info!("Actor attempted to connect - SMTP");
-                            let mut handler = SmtpHandler::new(chatgpt, llm_config, rate_limiter.clone());
+                            let mut handler = SmtpHandler::new(chatgpt, llm_escalation, rate_limiter.clone());
                             handler.handle_connection(stream).await;
                         }
                         Protocol::Http => {
                             info!("Actor attempted to connect - HTTP");
-                            let mut handler = HttpHandler::new(chatgpt, llm_config, rate_limiter.clone());
+                            let mut handler = HttpHandler::new(chatgpt, llm_escalation, rate_limiter.clone());
                             handler.handle_connection(stream).await;
                         }
                         Protocol::Ftp => {
                             info!("Actor attempted to connect - FTP");
-                            let mut handler = FtpHandler::new(chatgpt, llm_config, rate_limiter.clone());
+                            let mut handler = FtpHandler::new(chatgpt, llm_escalation, rate_limiter.clone());
                             handler.handle_connection(stream).await;
                         }
                     }
@@ -119,24 +126,32 @@ async fn start_listener(addr: &str, protocol: Protocol, rate_limiter: RateLimite
 
 #[tokio::main]
 async fn main() -> tokio::io::Result<()> {
+    // Load configuration once at startup
+    let app_config = AppConfig::load();
+
     // Set up rolling logs
-    let file_appender = rolling::daily("logs", "rustbucket.log");
+    let file_appender = rolling::daily(&app_config.general.log_directory, "rustbucket.log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
     // Initialize tracing subscriber
     tracing_subscriber::fmt::Subscriber::builder()
-        .with_env_filter(EnvFilter::new("info"))
+        .with_env_filter(EnvFilter::new(&app_config.general.log_level))
         .with_writer(non_blocking.clone())
         .with_ansi(false)
         .init();
     info!("Tracing initialized");
+    info!("Configuration loaded from Config.toml");
 
     // Generate instance name for this Rustbucket
     let instance_name = generate_instance_name();
     info!("Instance name: {}", instance_name);
 
     // Initialize S3 logger
-    match S3Logger::new(instance_name.clone()).await {
+    match S3Logger::new(
+        instance_name.clone(),
+        app_config.s3_logging.clone(),
+        &app_config.general,
+    ).await {
         Ok(s3_logger) => {
             if s3_logger.is_enabled() {
                 info!("S3 logging is enabled");
@@ -151,18 +166,21 @@ async fn main() -> tokio::io::Result<()> {
     }
 
     // Register this instance (optional)
-    registration::register_instance().await;
+    registration::register_instance(&app_config.registration).await;
 
     // Initialize shared rate limiter
-    let rate_limiter: RateLimiterRef = Arc::new(RateLimiter::new());
+    let rate_limiter: RateLimiterRef = Arc::new(RateLimiter::new(app_config.rate_limiting.clone()));
+
+    // Get LLM config or use default
+    let llm_config = app_config.llm.clone().unwrap_or_default();
 
     // Start SSH server (uses russh for real SSH protocol)
-    let chatgpt_for_ssh = ChatGPT::new().unwrap();
-    let llm_config_for_ssh = LlmEscalationConfig::default();
+    let chatgpt_for_ssh = ChatGPT::new(&llm_config).unwrap();
+    let llm_escalation_for_ssh = LlmEscalationConfig::default();
     let rate_limiter_for_ssh = rate_limiter.clone();
 
     let ssh_handle = tokio::spawn(async move {
-        if let Err(e) = start_ssh_server(chatgpt_for_ssh, llm_config_for_ssh, rate_limiter_for_ssh).await {
+        if let Err(e) = start_ssh_server(chatgpt_for_ssh, llm_escalation_for_ssh, rate_limiter_for_ssh).await {
             error!("SSH server failed: {}", e);
         }
     });
@@ -181,9 +199,10 @@ async fn main() -> tokio::io::Result<()> {
 
     for (addr, protocol) in listeners {
         let rate_limiter = rate_limiter.clone();
+        let llm_config = llm_config.clone();
         let addr_clone = addr.clone();
         let handle = tokio::spawn(async move {
-            if let Err(e) = start_listener(&addr, protocol, rate_limiter).await {
+            if let Err(e) = start_listener(&addr, protocol, rate_limiter, llm_config).await {
                 error!("Listener for {} failed: {}", addr_clone, e);
             }
         });
