@@ -217,7 +217,11 @@ pub async fn run_command_loop<H, C, S>(
     loop {
         match stream.read(&mut buffer).await {
             Ok(0) => {
-                info!("{} connection closed", handler.protocol_name());
+                info!(
+                    event_type = "connection",
+                    protocol = handler.protocol_name(),
+                    "Connection closed"
+                );
                 break;
             }
             Ok(n) => {
@@ -227,7 +231,12 @@ pub async fn run_command_loop<H, C, S>(
                     continue;
                 }
 
-                info!("{} command received: {}", handler.protocol_name(), command);
+                info!(
+                    event_type = "command",
+                    protocol = handler.protocol_name(),
+                    command = %command,
+                    "Command received"
+                );
 
                 handler.session_state_mut().commands_processed += 1;
                 handler.session_state_mut().last_command_time = Some(Instant::now());
@@ -236,7 +245,12 @@ pub async fn run_command_loop<H, C, S>(
                 if let Some((result, response)) = handler.pre_process_command(&command) {
                     if let Some(resp) = response {
                         if let Err(e) = stream.write_all(resp.as_bytes()).await {
-                            error!("Failed to send {} response: {}", handler.protocol_name(), e);
+                            error!(
+                                event_type = "operational",
+                                protocol = handler.protocol_name(),
+                                error = %e,
+                                "Failed to send response"
+                            );
                             break;
                         }
                     }
@@ -256,21 +270,43 @@ pub async fn run_command_loop<H, C, S>(
                 );
 
                 let response = if use_llm {
-                    info!("{}: Escalating to LLM for command: {}", handler.protocol_name(), command);
+                    info!(
+                        event_type = "llm",
+                        protocol = handler.protocol_name(),
+                        command = %command,
+                        decision = "escalate",
+                        "LLM escalation"
+                    );
                     handler.session_state_mut().llm_calls_made += 1;
                     let protocol = handler.protocol_type();
                     match chat_service.send_protocol_message(&command, protocol).await {
                         Ok(resp) => handler.format_llm_response(&resp),
                         Err(e) => {
-                            error!("LLM error: {}", e);
+                            error!(
+                                event_type = "llm",
+                                protocol = handler.protocol_name(),
+                                error = %e,
+                                "LLM error"
+                            );
                             handler.default_error_response().to_string()
                         }
                     }
                 } else if let Some(native_resp) = handler.get_native_response(&command) {
-                    info!("{}: Using native response for command: {}", handler.protocol_name(), command);
+                    info!(
+                        event_type = "response",
+                        protocol = handler.protocol_name(),
+                        command = %command,
+                        response_type = "native",
+                        "Using native response"
+                    );
                     native_resp
                 } else {
-                    info!("{}: Unknown command, incrementing counter: {}", handler.protocol_name(), command);
+                    info!(
+                        event_type = "command",
+                        protocol = handler.protocol_name(),
+                        command = %command,
+                        "Unknown command"
+                    );
                     handler.session_state_mut().unknown_commands_count += 1;
                     handler.default_error_response().to_string()
                 };
@@ -284,12 +320,22 @@ pub async fn run_command_loop<H, C, S>(
 
                 // Send response
                 if let Err(e) = stream.write_all(response.as_bytes()).await {
-                    error!("Failed to send {} response: {}", handler.protocol_name(), e);
+                    error!(
+                        event_type = "operational",
+                        protocol = handler.protocol_name(),
+                        error = %e,
+                        "Failed to send response"
+                    );
                     break;
                 }
             }
             Err(e) => {
-                error!("{} read error: {}", handler.protocol_name(), e);
+                error!(
+                    event_type = "operational",
+                    protocol = handler.protocol_name(),
+                    error = %e,
+                    "Read error"
+                );
                 break;
             }
         }
@@ -298,20 +344,22 @@ pub async fn run_command_loop<H, C, S>(
     // Log session summary including tarpit stats
     if tarpit.is_enabled() && tarpit.total_delay_ms() > 0 {
         info!(
-            "{} session ended. Commands: {}, LLM calls: {}, Duration: {:?}, {}",
-            handler.protocol_name(),
-            handler.session_state().commands_processed,
-            handler.session_state().llm_calls_made,
-            handler.session_state().session_duration(),
-            tarpit.summary()
+            event_type = "session",
+            protocol = handler.protocol_name(),
+            commands_processed = handler.session_state().commands_processed,
+            llm_calls_made = handler.session_state().llm_calls_made,
+            duration_secs = handler.session_state().session_duration().as_secs(),
+            tarpit_stats = %tarpit.summary(),
+            "Session ended"
         );
     } else {
         info!(
-            "{} session ended. Commands: {}, LLM calls: {}, Duration: {:?}",
-            handler.protocol_name(),
-            handler.session_state().commands_processed,
-            handler.session_state().llm_calls_made,
-            handler.session_state().session_duration()
+            event_type = "session",
+            protocol = handler.protocol_name(),
+            commands_processed = handler.session_state().commands_processed,
+            llm_calls_made = handler.session_state().llm_calls_made,
+            duration_secs = handler.session_state().session_duration().as_secs(),
+            "Session ended"
         );
     }
 }

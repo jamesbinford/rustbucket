@@ -4,32 +4,23 @@ Capture defects during manual testing. Each entry will be expanded into a GitHub
 
 ---
 
-## Defect: Last Log Dump logic missing
-- **Where**: /
-- **Steps**: Log in to Buckets List ("/"). The "Last Log Dump" column on the homepage always says "none" because there's no logic behind it.
-- **Expected**: We should change this to "Last Rustbucket Checkin" because the alternative is polling S3 and trying to pull the timestamp of the last time the rustbucket made a log dump.
-- **Actual**: "None"
-- **Severity**: Medium
-- **Notes**: 
+## Defect: Rustbucket still not dumping logs to S3
+- **Functionality**: Logging to S3
+- **Issue**: Since our successful manual test of S3 log dumping, no new logs have been dumped in S3.
+- **Expected Behavior**: Logs should be dumping every hour.
+- **Severity**: High
+- **Notes**: Log dumping is one of the most critical-path features of Rustbucket. Without we can't do any registry analysis. 
+- **Notes**: We may need to change the way we name the logs to be more granular than YYYYMMDD, or we may overwrite what's in S3.
 
 ---
 
-## Missing Feature: Approve a registered Rustbucket that's in "Review" status
-- **Where**: /
-- **Issue**: There's no way to change the status of a bucket from Review to Approved. There should also be other statuses.
-- **Importance**: High
-- **Notes**: We should do a planning session to determine valid statuses and how a rustbucket gets to them.
-
 ---
 
-## Missing Feature: View LogSinks is a dummy page
-- **Where**: /logsinks
-- **Issue**: The system logs, honeypot activity and Log Analysis by Claude are all dummy data. Let's have a design session to create an MVP of this page.
-- **Importance**: High
+## Defect: Log format is overly complex and non-standard
+- **Functionality**: Writing logs to filesystem
+- **Issue**: Log format should be improved and standardized so that Rustbucket Registry can easily parse it.
+- **Expected Behavior**: Well defined, standardized and clear logs.
+- **Severity**: High
+- **Notes**: Good log format is critical to Rustbucket Registry's analysis functionality.
 
 ---
-
-## Missing Feature: Honeypot Activity Tab is a dummy tab
-- **Where**: /logsinks -> Click "Honeypot Activity" tab
-- **Issue**: This is dummy data and probably doesn't match the current format of the Rustbucket logs. We should evaluate real Rustbucket logs and design this tab accordingly.
-- **Importance**: High

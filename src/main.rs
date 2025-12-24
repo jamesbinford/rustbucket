@@ -31,7 +31,12 @@ async fn start_ssh_server(chatgpt: ChatGPT, llm_config: LlmEscalationConfig, rat
     // Generate SSH host key (Ed25519)
     let key = russh::keys::PrivateKey::random(&mut OsRng, russh::keys::Algorithm::Ed25519)
         .map_err(|e| format!("Failed to generate SSH host key: {}", e))?;
-    info!("Generated SSH host key (Ed25519)");
+    info!(
+        event_type = "operational",
+        protocol = "SSH",
+        key_type = "Ed25519",
+        "Generated host key"
+    );
 
     // Configure the SSH server
     let config = russh::server::Config {
@@ -45,7 +50,12 @@ async fn start_ssh_server(chatgpt: ChatGPT, llm_config: LlmEscalationConfig, rat
     let mut server = SshHoneypotServer::new(chatgpt, llm_config, rate_limiter, tarpit_config);
 
     let ssh_port = std::env::var("SSH_PORT").unwrap_or_else(|_| "22".to_string()).parse().unwrap_or(22);
-    info!("Starting SSH honeypot on 0.0.0.0:{}", ssh_port);
+    info!(
+        event_type = "operational",
+        protocol = "SSH",
+        port = ssh_port,
+        "Starting SSH honeypot"
+    );
     server.run_on_address(config, ("0.0.0.0", ssh_port)).await?;
 
     Ok(())
@@ -82,7 +92,12 @@ async fn start_listener(
 
                 // Check rate limit before accepting connection
                 if let Err(reason) = rate_limiter.check_connection(ip).await {
-                    info!("Connection rejected from {}: {}", client_addr, reason);
+                    info!(
+                        event_type = "connection",
+                        client_ip = %client_addr,
+                        reason = %reason,
+                        "Connection rejected"
+                    );
                     drop(stream);
                     continue;
                 }
@@ -99,17 +114,32 @@ async fn start_listener(
 
                     match protocol {
                         Protocol::Smtp => {
-                            info!("Actor attempted to connect - SMTP");
+                            info!(
+                                event_type = "connection",
+                                protocol = "SMTP",
+                                client_ip = %ip,
+                                "New connection"
+                            );
                             let mut handler = SmtpHandler::new(chatgpt, llm_escalation, rate_limiter.clone(), tarpit_config);
                             handler.handle_connection(stream).await;
                         }
                         Protocol::Http => {
-                            info!("Actor attempted to connect - HTTP");
+                            info!(
+                                event_type = "connection",
+                                protocol = "HTTP",
+                                client_ip = %ip,
+                                "New connection"
+                            );
                             let mut handler = HttpHandler::new(chatgpt, llm_escalation, rate_limiter.clone(), tarpit_config);
                             handler.handle_connection(stream).await;
                         }
                         Protocol::Ftp => {
-                            info!("Actor attempted to connect - FTP");
+                            info!(
+                                event_type = "connection",
+                                protocol = "FTP",
+                                client_ip = %ip,
+                                "New connection"
+                            );
                             let mut handler = FtpHandler::new(chatgpt, llm_escalation, rate_limiter.clone(), tarpit_config);
                             handler.handle_connection(stream).await;
                         }
@@ -135,18 +165,18 @@ async fn main() -> tokio::io::Result<()> {
     let file_appender = rolling::hourly(&app_config.general.log_directory, "rustbucket.log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
-    // Initialize tracing subscriber
+    // Initialize tracing subscriber with JSON output for structured logging
     tracing_subscriber::fmt::Subscriber::builder()
         .with_env_filter(EnvFilter::new(&app_config.general.log_level))
         .with_writer(non_blocking.clone())
-        .with_ansi(false)
+        .json()
         .init();
-    info!("Tracing initialized");
-    info!("Configuration loaded from Config.toml");
+    info!(event_type = "operational", "Tracing initialized");
+    info!(event_type = "operational", "Configuration loaded from Config.toml");
 
     // Generate instance name for this Rustbucket
     let instance_name = generate_instance_name();
-    info!("Instance name: {}", instance_name);
+    info!(event_type = "operational", instance_name = %instance_name, "Instance started");
 
     // Initialize S3 logger
     match S3Logger::new(
@@ -156,14 +186,14 @@ async fn main() -> tokio::io::Result<()> {
     ).await {
         Ok(s3_logger) => {
             if s3_logger.is_enabled() {
-                info!("S3 logging is enabled");
+                info!(event_type = "operational", component = "s3_logger", "S3 logging is enabled");
                 s3_logger.start_background_uploader().await;
             } else {
-                info!("S3 logging is disabled");
+                info!(event_type = "operational", component = "s3_logger", "S3 logging is disabled");
             }
         }
         Err(e) => {
-            error!("Failed to initialize S3 logger: {}. Continuing without S3 logging.", e);
+            error!(event_type = "operational", component = "s3_logger", error = %e, "Failed to initialize S3 logger");
         }
     }
 
@@ -180,12 +210,14 @@ async fn main() -> tokio::io::Result<()> {
     // Log tarpit status
     if tarpit_config.enabled {
         info!(
-            "Tarpit enabled: base_delay={}ms, max_delay={}ms, progressive={}, multiplier={}, jitter={}%",
-            tarpit_config.base_delay_ms,
-            tarpit_config.max_delay_ms,
-            tarpit_config.progressive,
-            tarpit_config.delay_multiplier,
-            tarpit_config.jitter_percent
+            event_type = "operational",
+            component = "tarpit",
+            base_delay_ms = tarpit_config.base_delay_ms,
+            max_delay_ms = tarpit_config.max_delay_ms,
+            progressive = tarpit_config.progressive,
+            multiplier = tarpit_config.delay_multiplier,
+            jitter_percent = tarpit_config.jitter_percent,
+            "Tarpit enabled"
         );
     }
 
@@ -197,7 +229,7 @@ async fn main() -> tokio::io::Result<()> {
 
     let ssh_handle = tokio::spawn(async move {
         if let Err(e) = start_ssh_server(chatgpt_for_ssh, llm_escalation_for_ssh, rate_limiter_for_ssh, tarpit_config_for_ssh).await {
-            error!("SSH server failed: {}", e);
+            error!(event_type = "operational", protocol = "SSH", error = %e, "SSH server failed");
         }
     });
 
@@ -220,20 +252,20 @@ async fn main() -> tokio::io::Result<()> {
         let addr_clone = addr.clone();
         let handle = tokio::spawn(async move {
             if let Err(e) = start_listener(&addr, protocol, rate_limiter, llm_config, tarpit_config).await {
-                error!("Listener for {} failed: {}", addr_clone, e);
+                error!(event_type = "operational", address = %addr_clone, error = %e, "Listener failed");
             }
         });
         handles.push(handle);
     }
 
-    info!("All listeners started. Honeypot is now running indefinitely.");
+    info!(event_type = "operational", "All listeners started. Honeypot is now running indefinitely.");
 
     // Wait for all listener tasks
     for handle in handles {
         let _ = handle.await;
     }
 
-    error!("All listeners have stopped. This should not happen.");
+    error!(event_type = "operational", "All listeners have stopped. This should not happen.");
     Ok(())
 }
 

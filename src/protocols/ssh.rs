@@ -41,7 +41,12 @@ impl<C: ChatService + Clone + Send + Sync + 'static> SshServer for SshHoneypotSe
     fn new_client(&mut self, peer_addr: Option<SocketAddr>) -> Self::Handler {
         let addr = peer_addr.map(|a| a.to_string()).unwrap_or_else(|| "unknown".to_string());
         let ip = peer_addr.map(|a| a.ip());
-        info!("New SSH connection from: {}", addr);
+        info!(
+            event_type = "connection",
+            protocol = "SSH",
+            client_ip = %addr,
+            "New SSH connection"
+        );
 
         SshHoneypotHandler::new(
             self.chat_service.clone(),
@@ -54,7 +59,12 @@ impl<C: ChatService + Clone + Send + Sync + 'static> SshServer for SshHoneypotSe
     }
 
     fn handle_session_error(&mut self, error: <Self::Handler as russh::server::Handler>::Error) {
-        error!("SSH session error: {:?}", error);
+        error!(
+            event_type = "operational",
+            protocol = "SSH",
+            error = ?error,
+            "SSH session error"
+        );
     }
 }
 
@@ -98,7 +108,13 @@ impl<C: ChatService + Send + Sync + 'static> SshHoneypotHandler<C> {
 
         if let Some(ip) = self.client_ip {
             if let Err(reason) = self.rate_limiter.check_connection(ip).await {
-                info!("SSH rate limit: {} - {}", self.client_addr, reason);
+                info!(
+                    event_type = "operational",
+                    protocol = "SSH",
+                    client_ip = %self.client_addr,
+                    reason = %reason,
+                    "Rate limit exceeded"
+                );
                 return false;
             }
         }
@@ -127,8 +143,13 @@ impl<C: ChatService + Send + Sync + 'static> russh::server::Handler for SshHoney
         }
 
         info!(
-            "SSH password auth attempt - client: {}, user: {}, password: {}",
-            self.client_addr, user, password
+            event_type = "auth",
+            protocol = "SSH",
+            client_ip = %self.client_addr,
+            username = %user,
+            password = %password,
+            auth_method = "password",
+            "Authentication attempt"
         );
 
         // Update the shell simulator with the captured username
@@ -161,11 +182,14 @@ impl<C: ChatService + Send + Sync + 'static> russh::server::Handler for SshHoney
 
         let fingerprint = public_key.fingerprint(HashAlg::Sha256);
         info!(
-            "SSH publickey auth attempt - client: {}, user: {}, key_type: {}, fingerprint: {}",
-            self.client_addr,
-            user,
-            public_key.algorithm(),
-            fingerprint
+            event_type = "auth",
+            protocol = "SSH",
+            client_ip = %self.client_addr,
+            username = %user,
+            auth_method = "publickey",
+            key_type = %public_key.algorithm(),
+            fingerprint = %fingerprint,
+            "Authentication attempt"
         );
 
         // Update the shell simulator with the captured username
@@ -181,7 +205,12 @@ impl<C: ChatService + Send + Sync + 'static> russh::server::Handler for SshHoney
         _channel: Channel<Msg>,
         _session: &mut Session,
     ) -> Result<bool, Self::Error> {
-        info!("SSH channel opened - client: {}", self.client_addr);
+        info!(
+            event_type = "connection",
+            protocol = "SSH",
+            client_ip = %self.client_addr,
+            "Channel opened"
+        );
         Ok(true)
     }
 
@@ -191,7 +220,12 @@ impl<C: ChatService + Send + Sync + 'static> russh::server::Handler for SshHoney
         channel_id: ChannelId,
         session: &mut Session,
     ) -> Result<(), Self::Error> {
-        info!("SSH shell request - client: {}", self.client_addr);
+        info!(
+            event_type = "connection",
+            protocol = "SSH",
+            client_ip = %self.client_addr,
+            "Shell request"
+        );
 
         // Send welcome banner
         let welcome = "Welcome to Ubuntu 22.04.1 LTS (GNU/Linux 5.15.0-56-generic x86_64)\r\n\r\nLast login: Thu Dec 12 09:15:32 2025 from 192.168.1.50\r\n";
@@ -213,7 +247,13 @@ impl<C: ChatService + Send + Sync + 'static> russh::server::Handler for SshHoney
         session: &mut Session,
     ) -> Result<(), Self::Error> {
         let command = String::from_utf8_lossy(data).to_string();
-        info!("SSH exec request - client: {}, command: {}", self.client_addr, command);
+        info!(
+            event_type = "command",
+            protocol = "SSH",
+            client_ip = %self.client_addr,
+            command = %command,
+            "Exec request"
+        );
 
         // Process the command
         let mut simulator = self.shell_simulator.lock().await;
@@ -241,8 +281,13 @@ impl<C: ChatService + Send + Sync + 'static> russh::server::Handler for SshHoney
         session: &mut Session,
     ) -> Result<(), Self::Error> {
         info!(
-            "SSH PTY request - client: {}, term: {}, size: {}x{}",
-            self.client_addr, term, col_width, row_height
+            event_type = "connection",
+            protocol = "SSH",
+            client_ip = %self.client_addr,
+            terminal = %term,
+            width = col_width,
+            height = row_height,
+            "PTY request"
         );
         session.channel_success(channel_id)?;
         Ok(())
@@ -257,8 +302,12 @@ impl<C: ChatService + Send + Sync + 'static> russh::server::Handler for SshHoney
         session: &mut Session,
     ) -> Result<(), Self::Error> {
         info!(
-            "SSH env request - client: {}, {}={}",
-            self.client_addr, variable_name, variable_value
+            event_type = "command",
+            protocol = "SSH",
+            client_ip = %self.client_addr,
+            env_name = %variable_name,
+            env_value = %variable_value,
+            "Environment variable set"
         );
         session.channel_success(channel_id)?;
         Ok(())
@@ -275,8 +324,12 @@ impl<C: ChatService + Send + Sync + 'static> russh::server::Handler for SshHoney
         session: &mut Session,
     ) -> Result<(), Self::Error> {
         info!(
-            "SSH window change - client: {}, new size: {}x{}",
-            self.client_addr, col_width, row_height
+            event_type = "connection",
+            protocol = "SSH",
+            client_ip = %self.client_addr,
+            width = col_width,
+            height = row_height,
+            "Window size change"
         );
         session.channel_success(channel_id)?;
         Ok(())
@@ -290,8 +343,11 @@ impl<C: ChatService + Send + Sync + 'static> russh::server::Handler for SshHoney
         session: &mut Session,
     ) -> Result<(), Self::Error> {
         info!(
-            "SSH subsystem request - client: {}, subsystem: {}",
-            self.client_addr, name
+            event_type = "command",
+            protocol = "SSH",
+            client_ip = %self.client_addr,
+            subsystem = %name,
+            "Subsystem request"
         );
         // Reject - realistic for a server without SFTP/other subsystems configured
         session.channel_failure(channel_id)?;
@@ -383,7 +439,12 @@ impl<C: ChatService + Send + Sync + 'static> russh::server::Handler for SshHoney
         _channel_id: ChannelId,
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
-        info!("SSH channel closed - client: {}", self.client_addr);
+        info!(
+            event_type = "connection",
+            protocol = "SSH",
+            client_ip = %self.client_addr,
+            "Channel closed"
+        );
 
         // Release rate limit connection tracking
         if let Some(ip) = self.client_ip {
@@ -394,8 +455,13 @@ impl<C: ChatService + Send + Sync + 'static> russh::server::Handler for SshHoney
         let simulator = self.shell_simulator.lock().await;
         let (commands, llm_calls, duration) = simulator.get_session_stats();
         info!(
-            "SSH session ended - client: {}, commands: {}, llm_calls: {}, duration: {:?}",
-            self.client_addr, commands, llm_calls, duration
+            event_type = "session",
+            protocol = "SSH",
+            client_ip = %self.client_addr,
+            commands_processed = commands,
+            llm_calls_made = llm_calls,
+            duration_secs = duration.as_secs(),
+            "Session ended"
         );
 
         Ok(())

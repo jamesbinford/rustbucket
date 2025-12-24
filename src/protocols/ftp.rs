@@ -69,7 +69,12 @@ impl<C: ChatService> FtpHandler<C> {
                     return Some("501 Syntax error in parameters or arguments\r\n".to_string());
                 }
                 self.username = Some(parts[1].to_string());
-                info!("FTP USER: {}", parts[1]);
+                info!(
+                    event_type = "auth",
+                    protocol = "FTP",
+                    username = %parts[1],
+                    "Username provided"
+                );
                 Some("331 Please specify the password\r\n".to_string())
             }
             "PASS" => {
@@ -77,7 +82,13 @@ impl<C: ChatService> FtpHandler<C> {
                     return Some("501 Syntax error in parameters or arguments\r\n".to_string());
                 }
                 let password = parts[1..].join(" ");
-                info!("FTP PASS: {} (username: {:?})", password, self.username);
+                info!(
+                    event_type = "auth",
+                    protocol = "FTP",
+                    username = ?self.username,
+                    password = %password,
+                    "Authentication attempt"
+                );
                 self.authenticated = true;
                 Some("230 Login successful\r\n".to_string())
             }
@@ -121,7 +132,12 @@ impl<C: ChatService> FtpHandler<C> {
                 if parts.len() < 2 {
                     return Some("501 Syntax error in parameters or arguments\r\n".to_string());
                 }
-                info!("FTP STOR attempt: {}", parts[1]);
+                info!(
+                    event_type = "command",
+                    protocol = "FTP",
+                    filename = %parts[1],
+                    "File upload attempt"
+                );
                 Some("553 Could not create file\r\n".to_string())
             }
             "DELE" => {
@@ -220,12 +236,21 @@ impl<C: ChatService + Send + Sync> ProtocolHandler for FtpHandler<C> {
     where
         S: AsyncRead + AsyncWrite + Unpin + Send,
     {
-        info!("FTP handler started");
+        info!(
+            event_type = "connection",
+            protocol = "FTP",
+            "Handler started"
+        );
 
         // Send FTP welcome banner
         let banner = "220 (vsFTPd 3.0.3)\r\n";
         if let Err(e) = stream.write_all(banner.as_bytes()).await {
-            error!("Failed to send FTP banner: {}", e);
+            error!(
+                event_type = "operational",
+                protocol = "FTP",
+                error = %e,
+                "Failed to send banner"
+            );
             return;
         }
 

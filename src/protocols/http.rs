@@ -168,17 +168,30 @@ impl<C: ChatService + Send + Sync> ProtocolHandler for HttpHandler<C> {
     where
         S: AsyncRead + AsyncWrite + Unpin + Send,
     {
-        info!("HTTP handler started");
+        info!(
+            event_type = "connection",
+            protocol = "HTTP",
+            "Handler started"
+        );
 
         let mut buffer = [0u8; 4096];
         match stream.read(&mut buffer).await {
             Ok(0) => {
-                info!("HTTP connection closed immediately");
+                info!(
+                    event_type = "connection",
+                    protocol = "HTTP",
+                    "Connection closed immediately"
+                );
                 return;
             }
             Ok(n) => {
                 let request_data = String::from_utf8_lossy(&buffer[0..n]);
-                info!("HTTP request received:\n{}", request_data);
+                info!(
+                    event_type = "command",
+                    protocol = "HTTP",
+                    request = %request_data,
+                    "Request received"
+                );
 
                 self.session_state.commands_processed += 1;
                 self.session_state.last_command_time = Some(std::time::Instant::now());
@@ -187,7 +200,11 @@ impl<C: ChatService + Send + Sync> ProtocolHandler for HttpHandler<C> {
                 let (method, path) = match self.parse_http_request(&request_data) {
                     Some((m, p)) => (m, p),
                     None => {
-                        error!("Failed to parse HTTP request");
+                        error!(
+                            event_type = "operational",
+                            protocol = "HTTP",
+                            "Failed to parse request"
+                        );
                         let _ = stream.write_all(
                             self.build_http_response(
                                 "400 Bad Request",
@@ -199,7 +216,13 @@ impl<C: ChatService + Send + Sync> ProtocolHandler for HttpHandler<C> {
                     }
                 };
 
-                info!("HTTP {} {}", method, path);
+                info!(
+                    event_type = "command",
+                    protocol = "HTTP",
+                    method = %method,
+                    path = %path,
+                    "Request parsed"
+                );
 
                 // Determine if we should use LLM or native response
                 let is_known = self.is_known_path(&path);
@@ -210,7 +233,14 @@ impl<C: ChatService + Send + Sync> ProtocolHandler for HttpHandler<C> {
                 );
 
                 let response = if use_llm {
-                    info!("HTTP: Escalating to LLM for {} {}", method, path);
+                    info!(
+                        event_type = "llm",
+                        protocol = "HTTP",
+                        method = %method,
+                        path = %path,
+                        decision = "escalate",
+                        "LLM escalation"
+                    );
                     self.session_state.llm_calls_made += 1;
                     match self.chat_service.send_protocol_message(&request_data, Protocol::Http).await {
                         Ok(resp) => {
@@ -218,7 +248,12 @@ impl<C: ChatService + Send + Sync> ProtocolHandler for HttpHandler<C> {
                             self.build_http_response("200 OK", "text/plain", &resp)
                         }
                         Err(e) => {
-                            error!("LLM error: {}", e);
+                            error!(
+                                event_type = "llm",
+                                protocol = "HTTP",
+                                error = %e,
+                                "LLM error"
+                            );
                             self.build_http_response(
                                 "500 Internal Server Error",
                                 "text/html",
@@ -227,10 +262,22 @@ impl<C: ChatService + Send + Sync> ProtocolHandler for HttpHandler<C> {
                         }
                     }
                 } else if let Some(native_resp) = self.get_native_response(&method, &path) {
-                    info!("HTTP: Using native response for {} {}", method, path);
+                    info!(
+                        event_type = "response",
+                        protocol = "HTTP",
+                        method = %method,
+                        path = %path,
+                        response_type = "native",
+                        "Using native response"
+                    );
                     native_resp
                 } else {
-                    info!("HTTP: Unknown path, incrementing counter: {}", path);
+                    info!(
+                        event_type = "command",
+                        protocol = "HTTP",
+                        path = %path,
+                        "Unknown path"
+                    );
                     self.session_state.unknown_commands_count += 1;
                     self.build_http_response(
                         "404 Not Found",
@@ -249,19 +296,31 @@ impl<C: ChatService + Send + Sync> ProtocolHandler for HttpHandler<C> {
 
                 // Send response
                 if let Err(e) = stream.write_all(response.as_bytes()).await {
-                    error!("Failed to send HTTP response: {}", e);
+                    error!(
+                        event_type = "operational",
+                        protocol = "HTTP",
+                        error = %e,
+                        "Failed to send response"
+                    );
                 }
             }
             Err(e) => {
-                error!("HTTP read error: {}", e);
+                error!(
+                    event_type = "operational",
+                    protocol = "HTTP",
+                    error = %e,
+                    "Read error"
+                );
             }
         }
 
         info!(
-            "HTTP session ended. Requests: {}, LLM calls: {}, Duration: {:?}",
-            self.session_state.commands_processed,
-            self.session_state.llm_calls_made,
-            self.session_state.session_duration()
+            event_type = "session",
+            protocol = "HTTP",
+            requests_processed = self.session_state.commands_processed,
+            llm_calls_made = self.session_state.llm_calls_made,
+            duration_secs = self.session_state.session_duration().as_secs(),
+            "Session ended"
         );
     }
 }

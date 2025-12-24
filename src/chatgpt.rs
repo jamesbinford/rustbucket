@@ -148,12 +148,19 @@ impl ChatGPT {
 
 		if !response.status().is_success() {
 			let error_text = response.text().await?;
-			error!("Error response from ChatGPT: {}", error_text);
+			error!(
+				event_type = "llm",
+				component = "chatgpt",
+				error = %error_text,
+				"ChatGPT API error"
+			);
 			return Err(Box::new(std::io::Error::other(
 				"Failed to get a successful response from ChatGPT",
 			)));
 		}
 		info!(
+			event_type = "llm",
+			component = "chatgpt",
 			model = %self.model,
 			protocol = ?protocol,
 			user_message = %user_message,
@@ -162,6 +169,8 @@ impl ChatGPT {
 		let response_json: ChatGPTResponse = response.json().await?;
 		let reply = format!("{}\n", &response_json.choices[0].message.content);
 		info!(
+			event_type = "llm",
+			component = "chatgpt",
 			response = %reply.trim(),
 			"ChatGPT response received"
 		);
@@ -213,12 +222,19 @@ impl ChatGPT {
 			// If our ChatGPT request was not successful, log and return an error.
 			// Most likely issues: invalid API key, rate limiting, quota exceeded, etc.
 			let error_text = response.text().await?;
-			error!("Error response from ChatGPT: {}", error_text);
+			error!(
+				event_type = "llm",
+				component = "chatgpt",
+				error = %error_text,
+				"ChatGPT API error"
+			);
 			return Err(Box::new(std::io::Error::other(
 				"Failed to get a successful response from ChatGPT",
 			)));
 		}
 		info!(
+			event_type = "llm",
+			component = "chatgpt",
 			model = %self.model,
 			user_message = %user_message,
 			"ChatGPT request sent"
@@ -226,6 +242,8 @@ impl ChatGPT {
 		let response_json: ChatGPTResponse = response.json().await?;
 		let reply = format!("{}\n", &response_json.choices[0].message.content);
 		info!(
+			event_type = "llm",
+			component = "chatgpt",
 			response = %reply.trim(),
 			"ChatGPT response received"
 		);

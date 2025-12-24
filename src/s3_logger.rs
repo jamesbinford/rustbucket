@@ -92,24 +92,38 @@ impl S3Logger {
     /// Start the S3 log uploader background task
     pub async fn start_background_uploader(self) {
         if !self.is_enabled() {
-            info!("S3 logging is disabled or not configured");
+            info!(event_type = "operational", component = "s3_logger", "S3 logging is disabled or not configured");
             return;
         }
 
-        info!("Starting S3 log uploader background task");
-        info!("S3 Bucket: {:?}", self.config.bucket_name);
-        info!("Instance: {}", self.instance_name);
+        info!(
+            event_type = "operational",
+            component = "s3_logger",
+            bucket = ?self.config.bucket_name,
+            instance = %self.instance_name,
+            "Starting S3 log uploader background task"
+        );
 
         // Calculate upload interval (minutes takes precedence over hours)
         let upload_interval = if let Some(minutes) = self.config.upload_interval_minutes {
-            info!("Upload interval: {} minutes", minutes);
+            info!(
+                event_type = "operational",
+                component = "s3_logger",
+                upload_interval_minutes = minutes,
+                delete_after_upload = self.config.delete_after_upload,
+                "Upload interval configured"
+            );
             Duration::from_secs(minutes * 60)
         } else {
-            info!("Upload interval: {} hours", self.config.upload_interval_hours);
+            info!(
+                event_type = "operational",
+                component = "s3_logger",
+                upload_interval_hours = self.config.upload_interval_hours,
+                delete_after_upload = self.config.delete_after_upload,
+                "Upload interval configured"
+            );
             Duration::from_secs(self.config.upload_interval_hours * 3600)
         };
-
-        info!("Delete after upload: {}", self.config.delete_after_upload);
 
         tokio::spawn(async move {
             let retry_interval = Duration::from_secs(self.config.retry_interval_hours * 3600);
@@ -118,7 +132,7 @@ impl S3Logger {
                 // Wait for the upload interval
                 sleep(upload_interval).await;
 
-                info!("S3 uploader: Starting log upload check");
+                info!(event_type = "operational", component = "s3_logger", "Starting log upload check");
 
                 // Find and upload log files
                 let upload_result = self.find_and_upload_logs().await;
@@ -126,15 +140,25 @@ impl S3Logger {
                 let should_retry = match upload_result {
                     Ok(uploaded_count) => {
                         if uploaded_count > 0 {
-                            info!("S3 uploader: Successfully uploaded {} log file(s)", uploaded_count);
+                            info!(
+                                event_type = "operational",
+                                component = "s3_logger",
+                                files_uploaded = uploaded_count,
+                                "Log files uploaded successfully"
+                            );
                         } else {
-                            info!("S3 uploader: No log files to upload");
+                            info!(event_type = "operational", component = "s3_logger", "No log files to upload");
                         }
                         false
                     }
                     Err(e) => {
-                        error!("S3 uploader: Failed to upload logs: {}", e);
-                        warn!("S3 uploader: Will retry in {} hours", self.config.retry_interval_hours);
+                        error!(
+                            event_type = "operational",
+                            component = "s3_logger",
+                            error = %e,
+                            retry_interval_hours = self.config.retry_interval_hours,
+                            "Failed to upload logs"
+                        );
                         true
                     }
                 };
@@ -191,23 +215,45 @@ impl S3Logger {
             // Upload this log file
             match self.upload_log_file(&path).await {
                 Ok(_) => {
-                    info!("S3 uploader: Successfully uploaded {}", path.display());
+                    info!(
+                        event_type = "operational",
+                        component = "s3_logger",
+                        file = %path.display(),
+                        "Log file uploaded"
+                    );
                     uploaded_count += 1;
 
                     // Delete the local file after successful upload if configured
                     if self.config.delete_after_upload {
                         match tokio::fs::remove_file(&path).await {
                             Ok(_) => {
-                                info!("S3 uploader: Deleted local file {}", path.display());
+                                info!(
+                                    event_type = "operational",
+                                    component = "s3_logger",
+                                    file = %path.display(),
+                                    "Local file deleted"
+                                );
                             }
                             Err(e) => {
-                                warn!("S3 uploader: Failed to delete local log file {}: {}. File will remain on disk.", path.display(), e);
+                                warn!(
+                                    event_type = "operational",
+                                    component = "s3_logger",
+                                    file = %path.display(),
+                                    error = %e,
+                                    "Failed to delete local log file"
+                                );
                             }
                         }
                     }
                 }
                 Err(e) => {
-                    error!("S3 uploader: Failed to upload {}: {}", path.display(), e);
+                    error!(
+                        event_type = "operational",
+                        component = "s3_logger",
+                        file = %path.display(),
+                        error = %e,
+                        "Failed to upload log file"
+                    );
                     // Continue trying other files even if one fails
                 }
             }
@@ -238,7 +284,14 @@ impl S3Logger {
             format!("{}/{}", self.instance_name, filename)
         };
 
-        info!("S3 uploader: Uploading {} to s3://{}/{}", file_path.display(), bucket_name, s3_key);
+        info!(
+            event_type = "operational",
+            component = "s3_logger",
+            file = %file_path.display(),
+            bucket = %bucket_name,
+            s3_key = %s3_key,
+            "Uploading log file to S3"
+        );
 
         // Upload to S3
         client

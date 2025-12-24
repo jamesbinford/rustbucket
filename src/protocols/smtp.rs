@@ -71,7 +71,12 @@ impl<C: ChatService> SmtpHandler<C> {
                 .trim()
                 .to_string();
             self.mail_from = Some(from_addr.clone());
-            info!("SMTP MAIL FROM: {}", from_addr);
+            info!(
+                event_type = "command",
+                protocol = "SMTP",
+                mail_from = %from_addr,
+                "Mail sender specified"
+            );
             Some("250 OK\r\n".to_string())
         } else if cmd_upper.starts_with("RCPT TO:") {
             let to_addr = cmd_upper
@@ -80,7 +85,12 @@ impl<C: ChatService> SmtpHandler<C> {
                 .trim()
                 .to_string();
             self.rcpt_to.push(to_addr.clone());
-            info!("SMTP RCPT TO: {}", to_addr);
+            info!(
+                event_type = "command",
+                protocol = "SMTP",
+                rcpt_to = %to_addr,
+                "Mail recipient specified"
+            );
             Some("250 OK\r\n".to_string())
         } else if cmd_upper.starts_with("DATA") {
             self.in_data_mode = true;
@@ -150,7 +160,14 @@ impl<C: ChatService> CommandLoopHandler for SmtpHandler<C> {
         if self.in_data_mode {
             if command == "." || command == ".\r" {
                 // End of email data
-                info!("SMTP email data received:\n{}", self.email_data);
+                info!(
+                    event_type = "command",
+                    protocol = "SMTP",
+                    mail_from = ?self.mail_from,
+                    rcpt_to = ?self.rcpt_to,
+                    email_data = %self.email_data,
+                    "Email data received"
+                );
                 self.email_data.clear();
                 self.in_data_mode = false;
                 self.mail_from = None;
@@ -179,12 +196,21 @@ impl<C: ChatService + Send + Sync> ProtocolHandler for SmtpHandler<C> {
     where
         S: AsyncRead + AsyncWrite + Unpin + Send,
     {
-        info!("SMTP handler started");
+        info!(
+            event_type = "connection",
+            protocol = "SMTP",
+            "Handler started"
+        );
 
         // Send SMTP greeting banner
         let banner = "220 mail.example.com ESMTP Postfix (Ubuntu)\r\n";
         if let Err(e) = stream.write_all(banner.as_bytes()).await {
-            error!("Failed to send SMTP banner: {}", e);
+            error!(
+                event_type = "operational",
+                protocol = "SMTP",
+                error = %e,
+                "Failed to send banner"
+            );
             return;
         }
 

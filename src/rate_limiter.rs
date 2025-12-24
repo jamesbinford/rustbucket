@@ -61,12 +61,14 @@ impl RateLimiter {
             .collect();
 
         info!(
-            "RateLimiter initialized: enabled={}, max_conn={}, rate={}/min, ban_threshold={}, delay={:?}ms",
-            config.enabled,
-            config.max_connections_per_ip,
-            config.connection_rate_per_minute,
-            config.ban_threshold,
-            config.response_delay_ms
+            event_type = "operational",
+            component = "rate_limiter",
+            enabled = config.enabled,
+            max_connections_per_ip = config.max_connections_per_ip,
+            connection_rate_per_minute = config.connection_rate_per_minute,
+            ban_threshold = config.ban_threshold,
+            response_delay_ms = ?config.response_delay_ms,
+            "RateLimiter initialized"
         );
 
         Self {
@@ -86,7 +88,13 @@ impl RateLimiter {
 
         // Check blocklist first
         if self.blocklist.contains(&ip) {
-            info!("Rate limit: {} is blocklisted", ip);
+            info!(
+                event_type = "connection",
+                component = "rate_limiter",
+                client_ip = %ip,
+                reason = "blocklisted",
+                "Connection blocked"
+            );
             return Err("IP is blocklisted".to_string());
         }
 
@@ -102,7 +110,14 @@ impl RateLimiter {
         if let Some(banned_until) = state.banned_until {
             if Instant::now() < banned_until {
                 let remaining = banned_until.duration_since(Instant::now());
-                info!("Rate limit: {} is banned for {:?} more", ip, remaining);
+                info!(
+                    event_type = "connection",
+                    component = "rate_limiter",
+                    client_ip = %ip,
+                    remaining_secs = remaining.as_secs(),
+                    reason = "banned",
+                    "Connection blocked"
+                );
                 return Err("IP is temporarily banned".to_string());
             } else {
                 // Ban expired
@@ -113,8 +128,14 @@ impl RateLimiter {
 
         // Check concurrent connection limit
         if state.active_connections >= self.config.max_connections_per_ip {
-            info!("Rate limit: {} exceeded max concurrent connections ({})",
-                ip, state.active_connections);
+            info!(
+                event_type = "connection",
+                component = "rate_limiter",
+                client_ip = %ip,
+                active_connections = state.active_connections,
+                reason = "max_concurrent_exceeded",
+                "Connection blocked"
+            );
             return Err("Too many concurrent connections".to_string());
         }
 
@@ -130,13 +151,25 @@ impl RateLimiter {
                 state.banned_until = Some(
                     Instant::now() + Duration::from_secs(self.config.ban_duration_seconds)
                 );
-                info!("Rate limit: {} banned for {} seconds (exceeded threshold)",
-                    ip, self.config.ban_duration_seconds);
+                info!(
+                    event_type = "connection",
+                    component = "rate_limiter",
+                    client_ip = %ip,
+                    ban_duration_secs = self.config.ban_duration_seconds,
+                    reason = "threshold_exceeded",
+                    "IP banned"
+                );
                 return Err("IP banned due to excessive connections".to_string());
             }
 
-            info!("Rate limit: {} exceeded rate limit ({}/min)",
-                ip, self.config.connection_rate_per_minute);
+            info!(
+                event_type = "connection",
+                component = "rate_limiter",
+                client_ip = %ip,
+                rate_limit = self.config.connection_rate_per_minute,
+                reason = "rate_exceeded",
+                "Connection blocked"
+            );
             return Err("Connection rate exceeded".to_string());
         }
 

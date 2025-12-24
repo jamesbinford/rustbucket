@@ -141,7 +141,12 @@ impl<C: ChatService> SshShellSimulator<C> {
             return String::new();
         }
 
-        info!("SSH command received: {}", command);
+        info!(
+            event_type = "command",
+            protocol = "SSH",
+            command = %command,
+            "Command received"
+        );
 
         self.session_state.commands_processed += 1;
         self.session_state.last_command_time = Some(std::time::Instant::now());
@@ -155,20 +160,42 @@ impl<C: ChatService> SshShellSimulator<C> {
         );
 
         let response = if use_llm {
-            info!("SSH: Escalating to LLM for command: {}", command);
+            info!(
+                event_type = "llm",
+                protocol = "SSH",
+                command = %command,
+                decision = "escalate",
+                "LLM escalation"
+            );
             self.session_state.llm_calls_made += 1;
             match self.chat_service.send_protocol_message(command, Protocol::Ssh).await {
                 Ok(resp) => resp,
                 Err(e) => {
-                    error!("LLM error: {}", e);
+                    error!(
+                        event_type = "llm",
+                        protocol = "SSH",
+                        error = %e,
+                        "LLM error"
+                    );
                     format!("bash: {}: command not found\n", command)
                 }
             }
         } else if let Some(native_resp) = self.get_native_response(command) {
-            info!("SSH: Using native response for command: {}", command);
+            info!(
+                event_type = "response",
+                protocol = "SSH",
+                command = %command,
+                response_type = "native",
+                "Using native response"
+            );
             native_resp
         } else {
-            info!("SSH: Unknown command, incrementing counter: {}", command);
+            info!(
+                event_type = "command",
+                protocol = "SSH",
+                command = %command,
+                "Unknown command"
+            );
             self.session_state.unknown_commands_count += 1;
             format!("bash: {}: command not found\n", command)
         };
