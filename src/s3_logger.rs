@@ -167,8 +167,8 @@ impl S3Logger {
                 continue;
             }
 
-            // Daily rolling logs are named like: rustbucket.log.2025-12-12
-            // We want to upload these dated log files, not the current day's active log
+            // Hourly rolling logs are named like: rustbucket.log.2025-12-12-14
+            // We want to upload these dated log files, not the current hour's active log
             let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
             // Only process log files with date suffix (rustbucket.log.YYYY-MM-DD)
@@ -283,7 +283,7 @@ mod tests {
         assert!(config.bucket_name.is_none());
         assert!(config.region.is_none());
         assert!(config.prefix.is_none());
-        assert_eq!(config.upload_interval_hours, 24);
+        assert_eq!(config.upload_interval_hours, 1); // Hourly to match log rotation
         assert_eq!(config.retry_interval_hours, 24);
         assert!(!config.delete_after_upload);
     }

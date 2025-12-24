@@ -176,7 +176,7 @@ pub struct S3Config {
     pub delete_after_upload: bool,
 }
 
-fn default_upload_interval() -> u64 { 24 }
+fn default_upload_interval() -> u64 { 1 }
 fn default_retry_interval() -> u64 { 24 }
 
 impl Default for S3Config {
@@ -185,7 +185,7 @@ impl Default for S3Config {
             bucket_name: None,
             region: None,
             prefix: None,
-            upload_interval_hours: default_upload_interval(),
+            upload_interval_hours: 1, // Upload hourly to match hourly log rotation
             upload_interval_minutes: None,
             retry_interval_hours: default_retry_interval(),
             delete_after_upload: false,
@@ -285,7 +285,7 @@ mod tests {
     fn test_s3_config_default() {
         let config = S3Config::default();
         assert!(config.bucket_name.is_none());
-        assert_eq!(config.upload_interval_hours, 24);
+        assert_eq!(config.upload_interval_hours, 1); // Hourly to match log rotation
         assert!(!config.delete_after_upload);
     }
 

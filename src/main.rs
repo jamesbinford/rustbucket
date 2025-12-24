@@ -131,8 +131,8 @@ async fn main() -> tokio::io::Result<()> {
     // Load configuration once at startup
     let app_config = AppConfig::load();
 
-    // Set up rolling logs
-    let file_appender = rolling::daily(&app_config.general.log_directory, "rustbucket.log");
+    // Set up hourly rolling logs for more frequent S3 uploads
+    let file_appender = rolling::hourly(&app_config.general.log_directory, "rustbucket.log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
     // Initialize tracing subscriber

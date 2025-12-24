@@ -58,12 +58,11 @@ max_llm_calls_per_session = 10
 use_llm_for_human_like = true
 
 [s3_logging]
-enabled = ${enable_s3}
 bucket_name = "${s3_bucket_name}"
 region = "${s3_region}"
 prefix = "rustbucket-logs"
-upload_interval_hours = 24
-retry_interval_hours = 24
+upload_interval_hours = 1
+retry_interval_hours = 1
 delete_after_upload = ${delete_after_upload}
 CONFIG_EOF
 
