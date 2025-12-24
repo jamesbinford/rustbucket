@@ -28,9 +28,9 @@ systemctl start docker
 systemctl enable docker
 
 # Move system SSH to port 2222 BEFORE starting container on port 22
-sed -i 's/^#Port 22/Port 2222/' /etc/ssh/sshd_config
-sed -i 's/^Port 22/Port 2222/' /etc/ssh/sshd_config
-grep -q "^Port 2222" /etc/ssh/sshd_config || echo "Port 2222" >> /etc/ssh/sshd_config
+# Use drop-in config for Ubuntu 22.04+ compatibility
+mkdir -p /etc/ssh/sshd_config.d
+echo "Port 2222" > /etc/ssh/sshd_config.d/99-honeypot.conf
 systemctl restart ssh
 
 # Create app directory
@@ -77,10 +77,10 @@ services:
     environment:
       - CHATGPT_API_KEY=${chatgpt_api_key}
     ports:
-      - "22:22"
-      - "21:21"
-      - "25:25"
-      - "80:80"
+      - "22:2222"
+      - "21:2121"
+      - "25:2525"
+      - "80:8080"
     volumes:
       - rustbucket-logs:/app/logs
       - ./Config.toml:/app/Config.toml:ro

@@ -163,17 +163,17 @@ impl S3Logger {
         while let Some(entry) = entries.next_entry().await.map_err(|e| e.to_string())? {
             let path = entry.path();
 
-            // Only process .log files
-            if !path.is_file() || path.extension().and_then(|s| s.to_str()) != Some("log") {
+            if !path.is_file() {
                 continue;
             }
 
-            // Check if this is a rotated (old) log file, not the current one
-            // Daily rolling logs are named like: rustbucket.log, rustbucket.log.2025-12-12
+            // Daily rolling logs are named like: rustbucket.log.2025-12-12
+            // We want to upload these dated log files, not the current day's active log
             let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
-            // Skip the current log file (rustbucket.log without date suffix)
-            if filename == "rustbucket.log" {
+            // Only process log files with date suffix (rustbucket.log.YYYY-MM-DD)
+            // Skip files that don't match this pattern
+            if !filename.starts_with("rustbucket.log.") {
                 continue;
             }
 

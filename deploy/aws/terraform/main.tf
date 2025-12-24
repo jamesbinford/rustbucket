@@ -229,11 +229,19 @@ resource "aws_instance" "rustbucket" {
   subnet_id              = aws_subnet.public.id
   vpc_security_group_ids = [aws_security_group.rustbucket.id]
   iam_instance_profile   = "rustbucket-instance-profile"  # Managed outside Terraform
+  key_name               = var.key_name
 
   root_block_device {
     volume_size = 20
     volume_type = "gp3"
     encrypted   = true
+  }
+
+  # Allow Docker containers to access EC2 instance metadata for IAM credentials
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "optional"
+    http_put_response_hop_limit = 2
   }
 
   user_data = templatefile("${path.module}/user-data.sh", {

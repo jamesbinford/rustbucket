@@ -49,3 +49,8 @@ variable "log_retention_days" {
   type        = number
   default     = 90
 }
+
+variable "key_name" {
+  description = "EC2 key pair name for SSH access"
+  type        = string
+}
