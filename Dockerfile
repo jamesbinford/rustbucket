@@ -18,8 +18,9 @@ RUN mkdir src && \
 # Now copy the actual source code
 COPY --chown=rustbuilder:rustbuilder . .
 
-# Build the actual project
-RUN cargo build --release && \
+# Build the actual project (touch src to force rebuild after copying real source)
+RUN touch src/main.rs && \
+    cargo build --release && \
     strip target/release/rustbucket
 
 # Stage 2: Create a lightweight runtime container
