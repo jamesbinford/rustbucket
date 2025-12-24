@@ -1,7 +1,9 @@
 use super::ssh_shell::SshShellSimulator;
 use super::LlmEscalationConfig;
 use crate::chatgpt::ChatService;
+use crate::config::TarpitConfig;
 use crate::rate_limiter::RateLimiterRef;
+use crate::tarpit::Tarpit;
 use russh::server::{Auth, Msg, Server as SshServer, Session};
 use russh::{Channel, ChannelId, CryptoVec};
 use russh::keys::{HashAlg, PublicKey};
@@ -19,14 +21,16 @@ pub struct SshHoneypotServer<C: ChatService + Clone + Send + Sync + 'static> {
     chat_service: C,
     llm_config: LlmEscalationConfig,
     rate_limiter: RateLimiterRef,
+    tarpit_config: TarpitConfig,
 }
 
 impl<C: ChatService + Clone + Send + Sync + 'static> SshHoneypotServer<C> {
-    pub fn new(chat_service: C, llm_config: LlmEscalationConfig, rate_limiter: RateLimiterRef) -> Self {
+    pub fn new(chat_service: C, llm_config: LlmEscalationConfig, rate_limiter: RateLimiterRef, tarpit_config: TarpitConfig) -> Self {
         Self {
             chat_service,
             llm_config,
             rate_limiter,
+            tarpit_config,
         }
     }
 }
@@ -45,6 +49,7 @@ impl<C: ChatService + Clone + Send + Sync + 'static> SshServer for SshHoneypotSe
             addr,
             ip,
             self.rate_limiter.clone(),
+            self.tarpit_config.clone(),
         )
     }
 
@@ -61,6 +66,7 @@ pub struct SshHoneypotHandler<C: ChatService + Send + Sync + 'static> {
     input_buffer: String,
     rate_limiter: RateLimiterRef,
     rate_limit_checked: bool,
+    tarpit: Tarpit,
 }
 
 impl<C: ChatService + Send + Sync + 'static> SshHoneypotHandler<C> {
@@ -70,6 +76,7 @@ impl<C: ChatService + Send + Sync + 'static> SshHoneypotHandler<C> {
         client_addr: String,
         client_ip: Option<IpAddr>,
         rate_limiter: RateLimiterRef,
+        tarpit_config: TarpitConfig,
     ) -> Self {
         Self {
             shell_simulator: Arc::new(Mutex::new(SshShellSimulator::new(chat_service, llm_config))),
@@ -78,6 +85,7 @@ impl<C: ChatService + Send + Sync + 'static> SshHoneypotHandler<C> {
             input_buffer: String::new(),
             rate_limiter,
             rate_limit_checked: false,
+            tarpit: Tarpit::new(tarpit_config),
         }
     }
 
@@ -111,8 +119,12 @@ impl<C: ChatService + Send + Sync + 'static> russh::server::Handler for SshHoney
             });
         }
 
-        // Apply response delay for realism
-        self.rate_limiter.apply_response_delay().await;
+        // Apply tarpit delay (or fallback to rate_limiter delay)
+        if self.tarpit.is_enabled() {
+            self.tarpit.apply_delay().await;
+        } else {
+            self.rate_limiter.apply_response_delay().await;
+        }
 
         info!(
             "SSH password auth attempt - client: {}, user: {}, password: {}",
@@ -140,8 +152,12 @@ impl<C: ChatService + Send + Sync + 'static> russh::server::Handler for SshHoney
             });
         }
 
-        // Apply response delay for realism
-        self.rate_limiter.apply_response_delay().await;
+        // Apply tarpit delay (or fallback to rate_limiter delay)
+        if self.tarpit.is_enabled() {
+            self.tarpit.apply_delay().await;
+        } else {
+            self.rate_limiter.apply_response_delay().await;
+        }
 
         let fingerprint = public_key.fingerprint(HashAlg::Sha256);
         info!(

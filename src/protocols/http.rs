@@ -1,6 +1,8 @@
 use super::{ProtocolHandler, SessionState, LlmEscalationConfig};
 use crate::chatgpt::ChatService;
+use crate::config::TarpitConfig;
 use crate::rate_limiter::RateLimiterRef;
+use crate::tarpit::Tarpit;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tracing::{info, error};
 use std::collections::HashSet;
@@ -24,16 +26,18 @@ pub struct HttpHandler<C: ChatService> {
     llm_config: LlmEscalationConfig,
     pub(crate) known_paths: HashSet<String>,
     rate_limiter: RateLimiterRef,
+    tarpit_config: TarpitConfig,
 }
 
 impl<C: ChatService> HttpHandler<C> {
-    pub fn new(chat_service: C, llm_config: LlmEscalationConfig, rate_limiter: RateLimiterRef) -> Self {
+    pub fn new(chat_service: C, llm_config: LlmEscalationConfig, rate_limiter: RateLimiterRef, tarpit_config: TarpitConfig) -> Self {
         Self {
             chat_service,
             session_state: SessionState::new(),
             llm_config,
             known_paths: KNOWN_HTTP_PATHS.iter().map(|s| s.to_string()).collect(),
             rate_limiter,
+            tarpit_config,
         }
     }
 
@@ -235,8 +239,13 @@ impl<C: ChatService + Send + Sync> ProtocolHandler for HttpHandler<C> {
                     )
                 };
 
-                // Apply response delay for realism
-                self.rate_limiter.apply_response_delay().await;
+                // Apply tarpit delay (or fallback to rate_limiter delay)
+                let mut tarpit = Tarpit::new(self.tarpit_config.clone());
+                if tarpit.is_enabled() {
+                    tarpit.apply_delay().await;
+                } else {
+                    self.rate_limiter.apply_response_delay().await;
+                }
 
                 // Send response
                 if let Err(e) = stream.write_all(response.as_bytes()).await {

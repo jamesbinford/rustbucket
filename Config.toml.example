@@ -45,3 +45,20 @@ prefix = ""  # Optional: prefix for S3 keys, e.g., "honeypot-logs"
 upload_interval_hours = 24  # How often to check for and upload logs
 retry_interval_hours = 24   # How long to wait before retrying after a failure
 delete_after_upload = false  # Delete local log files after successful S3 upload (saves disk space)
+
+[rate_limiting]
+# Rate limiting configuration to prevent abuse
+max_connections_per_ip = 10     # Maximum concurrent connections from a single IP
+connection_timeout_secs = 300   # Connection timeout in seconds
+min_response_delay_ms = 50      # Minimum artificial delay before responding (milliseconds)
+max_response_delay_ms = 200     # Maximum artificial delay before responding (milliseconds)
+
+[tarpit]
+# Tarpit mode wastes attacker time with progressive delays
+# This can keep automated tools busy and slow down human attackers
+enabled = true                  # Enable/disable tarpit mode
+base_delay_ms = 100             # Initial delay in milliseconds before first response
+max_delay_ms = 30000            # Maximum delay cap (30 seconds)
+progressive = true              # If true, delays increase with each interaction
+delay_multiplier = 1.5          # Each interaction multiplies the delay by this factor
+jitter_percent = 20             # Random variation (+/- 20%) to make delays less predictable

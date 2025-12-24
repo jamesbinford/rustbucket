@@ -9,7 +9,9 @@ use std::time::{Duration, Instant};
 use std::collections::HashSet;
 use tracing::{info, error};
 use crate::chatgpt::ChatService;
+use crate::config::TarpitConfig;
 use crate::rate_limiter::RateLimiterRef;
+use crate::tarpit::Tarpit;
 
 /// Session state tracking for LLM escalation decisions
 #[derive(Debug, Clone)]
@@ -198,6 +200,7 @@ pub async fn run_command_loop<H, C, S>(
     handler: &mut H,
     chat_service: &C,
     rate_limiter: &RateLimiterRef,
+    tarpit_config: &TarpitConfig,
     stream: &mut S,
     buffer_size: usize,
 ) where
@@ -206,6 +209,7 @@ pub async fn run_command_loop<H, C, S>(
     S: AsyncRead + AsyncWrite + Unpin,
 {
     let mut buffer = vec![0u8; buffer_size];
+    let mut tarpit = Tarpit::new(tarpit_config.clone());
 
     loop {
         match stream.read(&mut buffer).await {
@@ -267,8 +271,12 @@ pub async fn run_command_loop<H, C, S>(
                     handler.default_error_response().to_string()
                 };
 
-                // Apply response delay for realism
-                rate_limiter.apply_response_delay().await;
+                // Apply tarpit delay (or fallback to rate_limiter delay)
+                if tarpit.is_enabled() {
+                    tarpit.apply_delay().await;
+                } else {
+                    rate_limiter.apply_response_delay().await;
+                }
 
                 // Send response
                 if let Err(e) = stream.write_all(response.as_bytes()).await {
@@ -283,13 +291,25 @@ pub async fn run_command_loop<H, C, S>(
         }
     }
 
-    info!(
-        "{} session ended. Commands: {}, LLM calls: {}, Duration: {:?}",
-        handler.protocol_name(),
-        handler.session_state().commands_processed,
-        handler.session_state().llm_calls_made,
-        handler.session_state().session_duration()
-    );
+    // Log session summary including tarpit stats
+    if tarpit.is_enabled() && tarpit.total_delay_ms() > 0 {
+        info!(
+            "{} session ended. Commands: {}, LLM calls: {}, Duration: {:?}, {}",
+            handler.protocol_name(),
+            handler.session_state().commands_processed,
+            handler.session_state().llm_calls_made,
+            handler.session_state().session_duration(),
+            tarpit.summary()
+        );
+    } else {
+        info!(
+            "{} session ended. Commands: {}, LLM calls: {}, Duration: {:?}",
+            handler.protocol_name(),
+            handler.session_state().commands_processed,
+            handler.session_state().llm_calls_made,
+            handler.session_state().session_duration()
+        );
+    }
 }
 
 #[cfg(test)]

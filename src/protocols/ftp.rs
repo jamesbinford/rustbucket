@@ -1,5 +1,6 @@
 use super::{ProtocolHandler, SessionState, LlmEscalationConfig, CommandLoopHandler, CommandResult, run_command_loop};
 use crate::chatgpt::ChatService;
+use crate::config::TarpitConfig;
 use crate::rate_limiter::RateLimiterRef;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tracing::{info, error};
@@ -25,10 +26,11 @@ pub struct FtpHandler<C: ChatService> {
     pub(crate) username: Option<String>,
     pub(crate) authenticated: bool,
     rate_limiter: RateLimiterRef,
+    tarpit_config: TarpitConfig,
 }
 
 impl<C: ChatService> FtpHandler<C> {
-    pub fn new(chat_service: C, llm_config: LlmEscalationConfig, rate_limiter: RateLimiterRef) -> Self {
+    pub fn new(chat_service: C, llm_config: LlmEscalationConfig, rate_limiter: RateLimiterRef, tarpit_config: TarpitConfig) -> Self {
         Self {
             chat_service,
             session_state: SessionState::new(),
@@ -38,6 +40,7 @@ impl<C: ChatService> FtpHandler<C> {
             username: None,
             authenticated: false,
             rate_limiter,
+            tarpit_config,
         }
     }
 
@@ -225,6 +228,7 @@ impl<C: ChatService + Send + Sync> ProtocolHandler for FtpHandler<C> {
         // Use shared command loop (clone to avoid borrow conflicts)
         let chat_service = self.chat_service.clone();
         let rate_limiter = self.rate_limiter.clone();
-        run_command_loop(self, &chat_service, &rate_limiter, &mut stream, 1024).await;
+        let tarpit_config = self.tarpit_config.clone();
+        run_command_loop(self, &chat_service, &rate_limiter, &tarpit_config, &mut stream, 1024).await;
     }
 }

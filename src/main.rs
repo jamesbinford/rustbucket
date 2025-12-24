@@ -4,6 +4,7 @@ mod registration;
 mod protocols;
 mod s3_logger;
 mod rate_limiter;
+mod tarpit;
 
 use tokio::net::TcpListener;
 use tokio::task;
@@ -11,7 +12,7 @@ use tracing::{info, error};
 use tracing_subscriber::EnvFilter;
 use tracing_appender::rolling;
 use chatgpt::ChatGPT;
-use config::AppConfig;
+use config::{AppConfig, TarpitConfig};
 use protocols::{ProtocolHandler, LlmEscalationConfig};
 use protocols::ssh::SshHoneypotServer;
 use protocols::http::HttpHandler;
@@ -26,7 +27,7 @@ use std::sync::Arc;
 use russh::server::Server as _;
 
 /// Start the SSH honeypot server using russh (real SSH protocol)
-async fn start_ssh_server(chatgpt: ChatGPT, llm_config: LlmEscalationConfig, rate_limiter: RateLimiterRef) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn start_ssh_server(chatgpt: ChatGPT, llm_config: LlmEscalationConfig, rate_limiter: RateLimiterRef, tarpit_config: TarpitConfig) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Generate SSH host key (Ed25519)
     let key = russh::keys::PrivateKey::random(&mut OsRng, russh::keys::Algorithm::Ed25519)
         .map_err(|e| format!("Failed to generate SSH host key: {}", e))?;
@@ -41,7 +42,7 @@ async fn start_ssh_server(chatgpt: ChatGPT, llm_config: LlmEscalationConfig, rat
     };
 
     let config = Arc::new(config);
-    let mut server = SshHoneypotServer::new(chatgpt, llm_config, rate_limiter);
+    let mut server = SshHoneypotServer::new(chatgpt, llm_config, rate_limiter, tarpit_config);
 
     let ssh_port = std::env::var("SSH_PORT").unwrap_or_else(|_| "22".to_string()).parse().unwrap_or(22);
     info!("Starting SSH honeypot on 0.0.0.0:{}", ssh_port);
@@ -64,6 +65,7 @@ async fn start_listener(
     protocol: Protocol,
     rate_limiter: RateLimiterRef,
     llm_config: config::LlmConfig,
+    tarpit_config: TarpitConfig,
 ) -> tokio::io::Result<()> {
     let listener = TcpListener::bind(addr).await?;
     let listener_addr = listener.local_addr()?;
@@ -89,6 +91,7 @@ async fn start_listener(
                 let chatgpt = chatgpt.clone();
                 let llm_escalation = llm_escalation.clone();
                 let rate_limiter = rate_limiter.clone();
+                let tarpit_config = tarpit_config.clone();
 
                 task::spawn(async move {
                     // Apply initial response delay to simulate real server
@@ -97,17 +100,17 @@ async fn start_listener(
                     match protocol {
                         Protocol::Smtp => {
                             info!("Actor attempted to connect - SMTP");
-                            let mut handler = SmtpHandler::new(chatgpt, llm_escalation, rate_limiter.clone());
+                            let mut handler = SmtpHandler::new(chatgpt, llm_escalation, rate_limiter.clone(), tarpit_config);
                             handler.handle_connection(stream).await;
                         }
                         Protocol::Http => {
                             info!("Actor attempted to connect - HTTP");
-                            let mut handler = HttpHandler::new(chatgpt, llm_escalation, rate_limiter.clone());
+                            let mut handler = HttpHandler::new(chatgpt, llm_escalation, rate_limiter.clone(), tarpit_config);
                             handler.handle_connection(stream).await;
                         }
                         Protocol::Ftp => {
                             info!("Actor attempted to connect - FTP");
-                            let mut handler = FtpHandler::new(chatgpt, llm_escalation, rate_limiter.clone());
+                            let mut handler = FtpHandler::new(chatgpt, llm_escalation, rate_limiter.clone(), tarpit_config);
                             handler.handle_connection(stream).await;
                         }
                     }
@@ -172,14 +175,28 @@ async fn main() -> tokio::io::Result<()> {
 
     // Get LLM config or use default
     let llm_config = app_config.llm.clone().unwrap_or_default();
+    let tarpit_config = app_config.tarpit.clone();
+
+    // Log tarpit status
+    if tarpit_config.enabled {
+        info!(
+            "Tarpit enabled: base_delay={}ms, max_delay={}ms, progressive={}, multiplier={}, jitter={}%",
+            tarpit_config.base_delay_ms,
+            tarpit_config.max_delay_ms,
+            tarpit_config.progressive,
+            tarpit_config.delay_multiplier,
+            tarpit_config.jitter_percent
+        );
+    }
 
     // Start SSH server (uses russh for real SSH protocol)
     let chatgpt_for_ssh = ChatGPT::new(&llm_config).unwrap();
     let llm_escalation_for_ssh = LlmEscalationConfig::default();
     let rate_limiter_for_ssh = rate_limiter.clone();
+    let tarpit_config_for_ssh = tarpit_config.clone();
 
     let ssh_handle = tokio::spawn(async move {
-        if let Err(e) = start_ssh_server(chatgpt_for_ssh, llm_escalation_for_ssh, rate_limiter_for_ssh).await {
+        if let Err(e) = start_ssh_server(chatgpt_for_ssh, llm_escalation_for_ssh, rate_limiter_for_ssh, tarpit_config_for_ssh).await {
             error!("SSH server failed: {}", e);
         }
     });
@@ -199,9 +216,10 @@ async fn main() -> tokio::io::Result<()> {
     for (addr, protocol) in listeners {
         let rate_limiter = rate_limiter.clone();
         let llm_config = llm_config.clone();
+        let tarpit_config = tarpit_config.clone();
         let addr_clone = addr.clone();
         let handle = tokio::spawn(async move {
-            if let Err(e) = start_listener(&addr, protocol, rate_limiter, llm_config).await {
+            if let Err(e) = start_listener(&addr, protocol, rate_limiter, llm_config, tarpit_config).await {
                 error!("Listener for {} failed: {}", addr_clone, e);
             }
         });

@@ -104,6 +104,48 @@ pub struct RegistrationConfig {
     pub api_key: Option<String>,
 }
 
+/// Tarpit configuration for wasting attacker time
+#[derive(Debug, Clone, Deserialize)]
+pub struct TarpitConfig {
+    #[serde(default = "default_tarpit_enabled")]
+    pub enabled: bool,
+    /// Base delay in milliseconds before each response
+    #[serde(default = "default_base_delay")]
+    pub base_delay_ms: u64,
+    /// Maximum delay in milliseconds (cap for progressive delays)
+    #[serde(default = "default_max_delay")]
+    pub max_delay_ms: u64,
+    /// Whether delays increase over the session
+    #[serde(default = "default_progressive")]
+    pub progressive: bool,
+    /// Multiplier for progressive delays (e.g., 1.2 = 20% slower each time)
+    #[serde(default = "default_multiplier")]
+    pub delay_multiplier: f64,
+    /// Random jitter percentage (0-100) to make delays less predictable
+    #[serde(default = "default_jitter")]
+    pub jitter_percent: u32,
+}
+
+fn default_tarpit_enabled() -> bool { false }
+fn default_base_delay() -> u64 { 100 }
+fn default_max_delay() -> u64 { 5000 }
+fn default_progressive() -> bool { true }
+fn default_multiplier() -> f64 { 1.2 }
+fn default_jitter() -> u32 { 20 }
+
+impl Default for TarpitConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_tarpit_enabled(),
+            base_delay_ms: default_base_delay(),
+            max_delay_ms: default_max_delay(),
+            progressive: default_progressive(),
+            delay_multiplier: default_multiplier(),
+            jitter_percent: default_jitter(),
+        }
+    }
+}
+
 /// S3 logging configuration
 #[derive(Debug, Clone, Deserialize)]
 pub struct S3Config {
@@ -144,6 +186,7 @@ pub struct AppConfig {
     pub general: GeneralConfig,
     pub llm: Option<LlmConfig>,
     pub rate_limiting: RateLimitConfig,
+    pub tarpit: TarpitConfig,
     pub registration: RegistrationConfig,
     pub s3_logging: S3Config,
 }
@@ -166,13 +209,15 @@ impl AppConfig {
                 let general: GeneralConfig = config.get("general").unwrap_or_default();
                 let llm: Option<LlmConfig> = config.get("llm").ok();
                 let rate_limiting: RateLimitConfig = config.get("rate_limiting").unwrap_or_default();
+                let tarpit: TarpitConfig = config.get("tarpit").unwrap_or_default();
                 let registration: RegistrationConfig = config.get("registration").unwrap_or_default();
                 let s3_logging: S3Config = config.get("s3_logging").unwrap_or_default();
 
                 info!(
-                    "Configuration loaded: llm={}, rate_limiting={}, s3_logging={}",
+                    "Configuration loaded: llm={}, rate_limiting={}, tarpit={}, s3_logging={}",
                     llm.is_some(),
                     rate_limiting.enabled,
+                    tarpit.enabled,
                     s3_logging.bucket_name.is_some()
                 );
 
@@ -180,6 +225,7 @@ impl AppConfig {
                     general,
                     llm,
                     rate_limiting,
+                    tarpit,
                     registration,
                     s3_logging,
                 }
