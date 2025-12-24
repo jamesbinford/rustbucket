@@ -1,4 +1,4 @@
-use super::{ProtocolHandler, SessionState, LlmEscalationConfig, CommandLoopHandler, CommandResult, run_command_loop};
+use super::{ProtocolHandler, SessionState, LlmEscalationConfig, CommandLoopHandler, CommandResult, run_command_loop, Protocol};
 use crate::chatgpt::ChatService;
 use crate::config::TarpitConfig;
 use crate::rate_limiter::RateLimiterRef;
@@ -139,6 +139,10 @@ impl<C: ChatService> CommandLoopHandler for SmtpHandler<C> {
 
     fn protocol_name(&self) -> &'static str {
         "SMTP"
+    }
+
+    fn protocol_type(&self) -> Protocol {
+        Protocol::Smtp
     }
 
     fn pre_process_command(&mut self, command: &str) -> Option<(CommandResult, Option<String>)> {

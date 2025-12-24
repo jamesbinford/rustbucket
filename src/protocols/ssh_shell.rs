@@ -1,4 +1,4 @@
-use super::{SessionState, LlmEscalationConfig};
+use super::{SessionState, LlmEscalationConfig, Protocol};
 use crate::chatgpt::ChatService;
 use std::collections::HashSet;
 use tracing::{info, error};
@@ -157,7 +157,7 @@ impl<C: ChatService> SshShellSimulator<C> {
         let response = if use_llm {
             info!("SSH: Escalating to LLM for command: {}", command);
             self.session_state.llm_calls_made += 1;
-            match self.chat_service.send_message(command).await {
+            match self.chat_service.send_protocol_message(command, Protocol::Ssh).await {
                 Ok(resp) => resp,
                 Err(e) => {
                     error!("LLM error: {}", e);

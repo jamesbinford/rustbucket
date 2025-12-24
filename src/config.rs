@@ -32,6 +32,9 @@ pub struct LlmConfig {
     #[serde(default = "default_model")]
     pub model: String,
     pub static_messages: StaticMessages,
+    /// Protocol-specific prompts (optional, falls back to static_messages)
+    #[serde(default)]
+    pub prompts: Option<ProtocolPrompts>,
 }
 
 fn default_model() -> String { "gpt-3.5-turbo".to_string() }
@@ -42,6 +45,15 @@ pub struct StaticMessages {
     pub message2: String,
 }
 
+/// Protocol-specific system prompts
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct ProtocolPrompts {
+    pub ssh: Option<String>,
+    pub http: Option<String>,
+    pub ftp: Option<String>,
+    pub smtp: Option<String>,
+}
+
 impl Default for LlmConfig {
     fn default() -> Self {
         Self {
@@ -50,6 +62,7 @@ impl Default for LlmConfig {
                 message1: "You are an Ubuntu Server.".to_string(),
                 message2: "Respond as an Ubuntu server would. Do not break character.".to_string(),
             },
+            prompts: None,
         }
     }
 }

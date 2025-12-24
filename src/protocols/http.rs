@@ -1,4 +1,4 @@
-use super::{ProtocolHandler, SessionState, LlmEscalationConfig};
+use super::{ProtocolHandler, SessionState, LlmEscalationConfig, Protocol};
 use crate::chatgpt::ChatService;
 use crate::config::TarpitConfig;
 use crate::rate_limiter::RateLimiterRef;
@@ -212,7 +212,7 @@ impl<C: ChatService + Send + Sync> ProtocolHandler for HttpHandler<C> {
                 let response = if use_llm {
                     info!("HTTP: Escalating to LLM for {} {}", method, path);
                     self.session_state.llm_calls_made += 1;
-                    match self.chat_service.send_message(&request_data).await {
+                    match self.chat_service.send_protocol_message(&request_data, Protocol::Http).await {
                         Ok(resp) => {
                             // LLM response might not be valid HTTP, so wrap it
                             self.build_http_response("200 OK", "text/plain", &resp)

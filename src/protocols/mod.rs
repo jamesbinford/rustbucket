@@ -8,7 +8,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use std::time::{Duration, Instant};
 use std::collections::HashSet;
 use tracing::{info, error};
-use crate::chatgpt::ChatService;
+use crate::chatgpt::{ChatService, Protocol};
 use crate::config::TarpitConfig;
 use crate::rate_limiter::RateLimiterRef;
 use crate::tarpit::Tarpit;
@@ -187,6 +187,9 @@ pub trait CommandLoopHandler {
     /// Protocol name for logging
     fn protocol_name(&self) -> &'static str;
 
+    /// Get the protocol type for LLM prompt selection
+    fn protocol_type(&self) -> Protocol;
+
     /// Pre-process command before normal handling. Returns None to continue normal processing,
     /// or Some(CommandResult) to handle specially (e.g., SMTP DATA mode, QUIT)
     fn pre_process_command(&mut self, _command: &str) -> Option<(CommandResult, Option<String>)> {
@@ -255,7 +258,8 @@ pub async fn run_command_loop<H, C, S>(
                 let response = if use_llm {
                     info!("{}: Escalating to LLM for command: {}", handler.protocol_name(), command);
                     handler.session_state_mut().llm_calls_made += 1;
-                    match chat_service.send_message(&command).await {
+                    let protocol = handler.protocol_type();
+                    match chat_service.send_protocol_message(&command, protocol).await {
                         Ok(resp) => handler.format_llm_response(&resp),
                         Err(e) => {
                             error!("LLM error: {}", e);

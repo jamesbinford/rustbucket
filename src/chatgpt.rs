@@ -2,12 +2,34 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use tracing::{info, error};
-use crate::config::LlmConfig;
+use crate::config::{LlmConfig, ProtocolPrompts};
+
+/// Protocol types for protocol-specific LLM prompts
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Protocol {
+    Ssh,
+    Http,
+    Ftp,
+    Smtp,
+}
+
+/// Default protocol-specific prompts
+const DEFAULT_SSH_PROMPT: &str = "You are an Ubuntu 22.04 server with bash shell. Respond exactly as a Linux terminal would, with realistic command output. Do not break character.";
+const DEFAULT_HTTP_PROMPT: &str = "You are an Apache 2.4 web server on Ubuntu. Return realistic HTTP responses with proper headers and status codes. Do not break character.";
+const DEFAULT_FTP_PROMPT: &str = "You are a vsftpd FTP server. Use proper FTP response codes (1xx-5xx) and realistic file listings. Do not break character.";
+const DEFAULT_SMTP_PROMPT: &str = "You are a Postfix SMTP server. Follow RFC 5321 response codes and behave as a realistic mail server. Do not break character.";
 
 /// ChatService trait for sending messages to an LLM backend
 #[async_trait::async_trait]
 pub trait ChatService: Clone + Send + Sync {
+    /// Send a message using the default/global prompt
     async fn send_message(&self, message: &str) -> Result<String, String>;
+
+    /// Send a message with protocol-specific prompt
+    async fn send_protocol_message(&self, message: &str, _protocol: Protocol) -> Result<String, String> {
+        // Default implementation delegates to send_message for backwards compatibility
+        self.send_message(message).await
+    }
 }
 
 #[derive(Serialize, Debug)]
@@ -42,6 +64,7 @@ pub struct ChatGPT {
 	api_key: String,
 	model: String,
 	static_messages: crate::config::StaticMessages,
+	prompts: Option<ProtocolPrompts>,
 	client: Client,
 }
 
@@ -59,8 +82,91 @@ impl ChatGPT {
 			api_key,
 			model: llm_config.model.clone(),
 			static_messages: llm_config.static_messages.clone(),
+			prompts: llm_config.prompts.clone(),
 			client: Client::new(),
 		})
+	}
+
+	/// Get the system prompt for a specific protocol
+	/// Falls back to static_messages if no protocol-specific prompt is configured
+	fn get_protocol_prompt(&self, protocol: Protocol) -> String {
+		// First check if protocol-specific prompts are configured
+		if let Some(ref prompts) = self.prompts {
+			let prompt = match protocol {
+				Protocol::Ssh => prompts.ssh.as_ref(),
+				Protocol::Http => prompts.http.as_ref(),
+				Protocol::Ftp => prompts.ftp.as_ref(),
+				Protocol::Smtp => prompts.smtp.as_ref(),
+			};
+			if let Some(p) = prompt {
+				return p.clone();
+			}
+		}
+
+		// Fall back to default prompts for the protocol
+		match protocol {
+			Protocol::Ssh => DEFAULT_SSH_PROMPT.to_string(),
+			Protocol::Http => DEFAULT_HTTP_PROMPT.to_string(),
+			Protocol::Ftp => DEFAULT_FTP_PROMPT.to_string(),
+			Protocol::Smtp => DEFAULT_SMTP_PROMPT.to_string(),
+		}
+	}
+
+	/// Send a message with a protocol-specific system prompt
+	pub async fn send_protocol_message_impl(
+		&self,
+		user_message: &str,
+		protocol: Protocol,
+	) -> Result<String, Box<dyn Error>> {
+		let url = "https://api.openai.com/v1/chat/completions";
+
+		let system_prompt = self.get_protocol_prompt(protocol);
+
+		let messages = vec![
+			Message {
+				role: "system",
+				content: &system_prompt,
+			},
+			Message {
+				role: "user",
+				content: user_message,
+			},
+		];
+
+		let request_body = ChatGPTRequest {
+			model: &self.model,
+			messages,
+		};
+
+		let response = self
+			.client
+			.post(url)
+			.header("Authorization", format!("Bearer {}", self.api_key))
+			.json(&request_body)
+			.send()
+			.await?;
+
+		if !response.status().is_success() {
+			let error_text = response.text().await?;
+			error!("Error response from ChatGPT: {}", error_text);
+			return Err(Box::new(std::io::Error::other(
+				"Failed to get a successful response from ChatGPT",
+			)));
+		}
+		info!(
+			model = %self.model,
+			protocol = ?protocol,
+			user_message = %user_message,
+			"ChatGPT protocol-specific request sent"
+		);
+		let response_json: ChatGPTResponse = response.json().await?;
+		let reply = format!("{}\n", &response_json.choices[0].message.content);
+		info!(
+			response = %reply.trim(),
+			"ChatGPT response received"
+		);
+
+		Ok(reply.to_string())
 	}
 	
 	pub async fn send_message(
@@ -137,6 +243,14 @@ impl ChatService for ChatGPT {
             Err(e) => Err(e.to_string()),
         }
     }
+
+    async fn send_protocol_message(&self, message: &str, protocol: Protocol) -> Result<String, String> {
+        // Call the protocol-specific implementation
+        match self.send_protocol_message_impl(message, protocol).await {
+            Ok(response) => Ok(response),
+            Err(e) => Err(e.to_string()),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -173,6 +287,7 @@ mod tests {
         let config = LlmConfig {
             model: "gpt-4".to_string(),
             static_messages: messages,
+            prompts: None,
         };
 
         assert_eq!(config.model, "gpt-4");
@@ -248,6 +363,7 @@ mod tests {
                 message1: "You are an Ubuntu Server.".to_string(),
                 message2: "Respond as an Ubuntu server would.".to_string(),
             },
+            prompts: None,
         };
 
         let result = ChatGPT::new(&llm_config);
@@ -275,6 +391,7 @@ mod tests {
                 message1: "Message 1".to_string(),
                 message2: "Message 2".to_string(),
             },
+            prompts: None,
         };
 
         let chatgpt = ChatGPT::new(&llm_config).unwrap();
@@ -299,6 +416,7 @@ mod tests {
                 message1: "System msg 1".to_string(),
                 message2: "System msg 2".to_string(),
             },
+            prompts: None,
         };
 
         let chatgpt = ChatGPT::new(&llm_config).unwrap();

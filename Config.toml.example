@@ -15,7 +15,17 @@ model = "gpt-3.5-turbo"
 
 # These messages are sent to the target LLM before every interaction from the Rustbucket. Use them to keep the LLM
 # in character! The longer we can keep an attacker interacting with the bucket, the richer our dataset.
+# Note: If protocol-specific prompts are configured below, they take precedence over static_messages.
 static_messages = { message1 = "You are an Ubuntu Server.", message2 = "Respond as an Ubuntu server would. Do not break character." }
+
+# Protocol-specific prompts for better LLM responses (optional)
+# If a protocol prompt is not specified, the static_messages above are used as fallback.
+# Default prompts are used if this section is omitted entirely.
+[llm.prompts]
+ssh = "You are an Ubuntu 22.04 server with bash shell. Respond exactly as a Linux terminal would, with realistic command output. Do not break character."
+http = "You are an Apache 2.4 web server on Ubuntu. Return realistic HTTP responses with proper headers and status codes. Do not break character."
+ftp = "You are a vsftpd FTP server. Use proper FTP response codes (1xx-5xx) and realistic file listings. Do not break character."
+smtp = "You are a Postfix SMTP server. Follow RFC 5321 response codes and behave as a realistic mail server. Do not break character."
 
 [llm_escalation]
 # Controls when to use LLM vs native protocol responses for cost optimization
