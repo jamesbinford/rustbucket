@@ -2,6 +2,7 @@ use super::ssh_shell::SshShellSimulator;
 use super::LlmEscalationConfig;
 use crate::chatgpt::ChatService;
 use crate::config::TarpitConfig;
+use crate::fingerprint::ServerFingerprint;
 use crate::rate_limiter::RateLimiterRef;
 use crate::tarpit::Tarpit;
 use russh::server::{Auth, Msg, Server as SshServer, Session};
@@ -22,15 +23,23 @@ pub struct SshHoneypotServer<C: ChatService + Clone + Send + Sync + 'static> {
     llm_config: LlmEscalationConfig,
     rate_limiter: RateLimiterRef,
     tarpit_config: TarpitConfig,
+    fingerprint: ServerFingerprint,
 }
 
 impl<C: ChatService + Clone + Send + Sync + 'static> SshHoneypotServer<C> {
-    pub fn new(chat_service: C, llm_config: LlmEscalationConfig, rate_limiter: RateLimiterRef, tarpit_config: TarpitConfig) -> Self {
+    pub fn new(
+        chat_service: C,
+        llm_config: LlmEscalationConfig,
+        rate_limiter: RateLimiterRef,
+        tarpit_config: TarpitConfig,
+        fingerprint: ServerFingerprint,
+    ) -> Self {
         Self {
             chat_service,
             llm_config,
             rate_limiter,
             tarpit_config,
+            fingerprint,
         }
     }
 }
@@ -55,6 +64,7 @@ impl<C: ChatService + Clone + Send + Sync + 'static> SshServer for SshHoneypotSe
             ip,
             self.rate_limiter.clone(),
             self.tarpit_config.clone(),
+            self.fingerprint.clone(),
         )
     }
 
@@ -77,6 +87,7 @@ pub struct SshHoneypotHandler<C: ChatService + Send + Sync + 'static> {
     rate_limiter: RateLimiterRef,
     rate_limit_checked: bool,
     tarpit: Tarpit,
+    fingerprint: ServerFingerprint,
 }
 
 impl<C: ChatService + Send + Sync + 'static> SshHoneypotHandler<C> {
@@ -87,15 +98,17 @@ impl<C: ChatService + Send + Sync + 'static> SshHoneypotHandler<C> {
         client_ip: Option<IpAddr>,
         rate_limiter: RateLimiterRef,
         tarpit_config: TarpitConfig,
+        fingerprint: ServerFingerprint,
     ) -> Self {
         Self {
-            shell_simulator: Arc::new(Mutex::new(SshShellSimulator::new(chat_service, llm_config))),
+            shell_simulator: Arc::new(Mutex::new(SshShellSimulator::new(chat_service, llm_config, fingerprint.clone()))),
             client_addr,
             client_ip,
             input_buffer: String::new(),
             rate_limiter,
             rate_limit_checked: false,
             tarpit: Tarpit::new(tarpit_config),
+            fingerprint,
         }
     }
 
@@ -227,9 +240,8 @@ impl<C: ChatService + Send + Sync + 'static> russh::server::Handler for SshHoney
             "Shell request"
         );
 
-        // Send welcome banner
-        let welcome = "Welcome to Ubuntu 22.04.1 LTS (GNU/Linux 5.15.0-56-generic x86_64)\r\n\r\nLast login: Thu Dec 12 09:15:32 2025 from 192.168.1.50\r\n";
-        session.data(channel_id, CryptoVec::from_slice(welcome.as_bytes()))?;
+        // Send welcome banner using fingerprint
+        session.data(channel_id, CryptoVec::from_slice(self.fingerprint.ssh_banner.as_bytes()))?;
 
         // Send initial prompt
         let simulator = self.shell_simulator.lock().await;

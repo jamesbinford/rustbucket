@@ -193,6 +193,39 @@ impl Default for S3Config {
     }
 }
 
+/// Fingerprint configuration for dynamic banner generation
+#[derive(Debug, Clone, Deserialize)]
+pub struct FingerprintConfig {
+    #[serde(default = "default_fingerprint_enabled")]
+    pub enabled: bool,
+    /// Override hostname (if None, will be randomly generated)
+    #[serde(default)]
+    pub hostname: Option<String>,
+    /// Override HTTP server header (e.g., "Apache/2.4.57 (Ubuntu)")
+    #[serde(default)]
+    pub http_server: Option<String>,
+    /// Override FTP version (e.g., "vsFTPd 3.0.5")
+    #[serde(default)]
+    pub ftp_version: Option<String>,
+    /// Override SMTP hostname (e.g., "mail.example.com")
+    #[serde(default)]
+    pub smtp_hostname: Option<String>,
+}
+
+fn default_fingerprint_enabled() -> bool { true }
+
+impl Default for FingerprintConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_fingerprint_enabled(),
+            hostname: None,
+            http_server: None,
+            ftp_version: None,
+            smtp_hostname: None,
+        }
+    }
+}
+
 /// Combined application configuration
 #[derive(Debug, Clone, Default)]
 pub struct AppConfig {
@@ -202,6 +235,7 @@ pub struct AppConfig {
     pub tarpit: TarpitConfig,
     pub registration: RegistrationConfig,
     pub s3_logging: S3Config,
+    pub fingerprint: FingerprintConfig,
 }
 
 impl AppConfig {
@@ -225,13 +259,15 @@ impl AppConfig {
                 let tarpit: TarpitConfig = config.get("tarpit").unwrap_or_default();
                 let registration: RegistrationConfig = config.get("registration").unwrap_or_default();
                 let s3_logging: S3Config = config.get("s3_logging").unwrap_or_default();
+                let fingerprint: FingerprintConfig = config.get("fingerprint").unwrap_or_default();
 
                 info!(
-                    "Configuration loaded: llm={}, rate_limiting={}, tarpit={}, s3_logging={}",
+                    "Configuration loaded: llm={}, rate_limiting={}, tarpit={}, s3_logging={}, fingerprint={}",
                     llm.is_some(),
                     rate_limiting.enabled,
                     tarpit.enabled,
-                    s3_logging.bucket_name.is_some()
+                    s3_logging.bucket_name.is_some(),
+                    fingerprint.enabled
                 );
 
                 AppConfig {
@@ -241,6 +277,7 @@ impl AppConfig {
                     tarpit,
                     registration,
                     s3_logging,
+                    fingerprint,
                 }
             }
             Err(e) => {

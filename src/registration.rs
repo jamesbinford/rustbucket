@@ -9,7 +9,8 @@ use std::env;
 use std::fs;
 use std::path::Path;
 
-use crate::config::RegistrationConfig;
+use crate::config::{FingerprintConfig, RegistrationConfig};
+use crate::fingerprint::ServerFingerprint;
 
 /// File path for persisting instance identity across restarts
 const IDENTITY_FILE: &str = ".rustbucket_identity";
@@ -38,6 +39,8 @@ struct InstanceIdentity {
     token: String,
     #[serde(default)]
     s3_config: Option<S3ConfigResponse>,
+    #[serde(default)]
+    fingerprint: Option<ServerFingerprint>,
 }
 
 /// System information collected for registration
@@ -266,6 +269,7 @@ fn load_or_create_identity() -> InstanceIdentity {
         name: generate_name(),
         token: generate_token(),
         s3_config: None,
+        fingerprint: None,
     };
 
     // Save to file for next restart
@@ -366,6 +370,55 @@ pub async fn register_instance(config: &RegistrationConfig) -> Option<S3ConfigRe
     }
 
     s3_config
+}
+
+/// Load fingerprint from identity file, or generate a new one if not present
+pub fn load_or_generate_fingerprint(config: &FingerprintConfig) -> ServerFingerprint {
+    if !config.enabled {
+        info!(
+            event_type = "operational",
+            component = "fingerprint",
+            "Fingerprinting disabled, using static defaults"
+        );
+        return ServerFingerprint::default_static();
+    }
+
+    let identity_path = Path::new(IDENTITY_FILE);
+
+    // Try to load existing fingerprint from identity file
+    if identity_path.exists() {
+        if let Ok(contents) = fs::read_to_string(identity_path) {
+            if let Ok(identity) = serde_json::from_str::<InstanceIdentity>(&contents) {
+                if let Some(fingerprint) = identity.fingerprint {
+                    info!(
+                        event_type = "operational",
+                        component = "fingerprint",
+                        hostname = %fingerprint.hostname,
+                        "Loaded fingerprint from identity file"
+                    );
+                    return fingerprint;
+                }
+            }
+        }
+    }
+
+    // Generate new fingerprint
+    let fingerprint = ServerFingerprint::generate(config);
+    info!(
+        event_type = "operational",
+        component = "fingerprint",
+        hostname = %fingerprint.hostname,
+        os_version = %fingerprint.os_version,
+        http_server = %fingerprint.http_server,
+        "Generated new fingerprint"
+    );
+
+    // Save to identity file
+    let mut identity = load_or_create_identity();
+    identity.fingerprint = Some(fingerprint.clone());
+    save_identity(&identity);
+
+    fingerprint
 }
 
 fn generate_name() -> String {
@@ -486,6 +539,7 @@ mod tests {
             name: "rustbucket-test1234".to_string(),
             token: "abcdef1234567890abcdef1234567890".to_string(),
             s3_config: None,
+            fingerprint: None,
         };
 
         let json = serde_json::to_string(&identity).unwrap();
@@ -496,6 +550,7 @@ mod tests {
         assert_eq!(parsed.name, identity.name);
         assert_eq!(parsed.token, identity.token);
         assert!(parsed.s3_config.is_none());
+        assert!(parsed.fingerprint.is_none());
     }
 
     #[test]
@@ -505,8 +560,9 @@ mod tests {
 
         assert_eq!(identity.name, "rustbucket-abcd1234");
         assert_eq!(identity.token, "token123456789012345678901234");
-        // s3_config should default to None when not present
+        // s3_config and fingerprint should default to None when not present
         assert!(identity.s3_config.is_none());
+        assert!(identity.fingerprint.is_none());
     }
 
     #[test]
@@ -561,6 +617,7 @@ mod tests {
                 region: "eu-west-1".to_string(),
                 prefix: None,
             }),
+            fingerprint: None,
         };
 
         let json = serde_json::to_string(&identity).unwrap();

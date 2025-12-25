@@ -1,6 +1,7 @@
 use super::{ProtocolHandler, SessionState, LlmEscalationConfig, Protocol};
 use crate::chatgpt::ChatService;
 use crate::config::TarpitConfig;
+use crate::fingerprint::ServerFingerprint;
 use crate::rate_limiter::RateLimiterRef;
 use crate::tarpit::Tarpit;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -27,10 +28,11 @@ pub struct HttpHandler<C: ChatService> {
     pub(crate) known_paths: HashSet<String>,
     rate_limiter: RateLimiterRef,
     tarpit_config: TarpitConfig,
+    fingerprint: ServerFingerprint,
 }
 
 impl<C: ChatService> HttpHandler<C> {
-    pub fn new(chat_service: C, llm_config: LlmEscalationConfig, rate_limiter: RateLimiterRef, tarpit_config: TarpitConfig) -> Self {
+    pub fn new(chat_service: C, llm_config: LlmEscalationConfig, rate_limiter: RateLimiterRef, tarpit_config: TarpitConfig, fingerprint: ServerFingerprint) -> Self {
         Self {
             chat_service,
             session_state: SessionState::new(),
@@ -38,6 +40,7 @@ impl<C: ChatService> HttpHandler<C> {
             known_paths: KNOWN_HTTP_PATHS.iter().map(|s| s.to_string()).collect(),
             rate_limiter,
             tarpit_config,
+            fingerprint,
         }
     }
 
@@ -153,8 +156,9 @@ impl<C: ChatService> HttpHandler<C> {
 
     pub(crate) fn build_http_response(&self, status: &str, content_type: &str, body: &str) -> String {
         format!(
-            "HTTP/1.1 {}\r\nServer: Apache/2.4.52 (Ubuntu)\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            "HTTP/1.1 {}\r\nServer: {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
             status,
+            self.fingerprint.http_server,
             content_type,
             body.len(),
             body

@@ -1,5 +1,6 @@
 mod chatgpt;
 mod config;
+mod fingerprint;
 mod registration;
 mod protocols;
 mod s3_logger;
@@ -13,6 +14,7 @@ use tracing_subscriber::EnvFilter;
 use tracing_appender::rolling;
 use chatgpt::ChatGPT;
 use config::{AppConfig, TarpitConfig};
+use fingerprint::ServerFingerprint;
 use protocols::{ProtocolHandler, LlmEscalationConfig};
 use protocols::ssh::SshHoneypotServer;
 use protocols::http::HttpHandler;
@@ -20,6 +22,7 @@ use protocols::ftp::FtpHandler;
 use protocols::smtp::SmtpHandler;
 use s3_logger::S3Logger;
 use rate_limiter::{RateLimiter, RateLimiterRef};
+use registration::load_or_generate_fingerprint;
 use rand::distributions::Alphanumeric;
 use rand::Rng;
 use rand::rngs::OsRng;
@@ -27,7 +30,7 @@ use std::sync::Arc;
 use russh::server::Server as _;
 
 /// Start the SSH honeypot server using russh (real SSH protocol)
-async fn start_ssh_server(chatgpt: ChatGPT, llm_config: LlmEscalationConfig, rate_limiter: RateLimiterRef, tarpit_config: TarpitConfig) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn start_ssh_server(chatgpt: ChatGPT, llm_config: LlmEscalationConfig, rate_limiter: RateLimiterRef, tarpit_config: TarpitConfig, fingerprint: ServerFingerprint) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Generate SSH host key (Ed25519)
     let key = russh::keys::PrivateKey::random(&mut OsRng, russh::keys::Algorithm::Ed25519)
         .map_err(|e| format!("Failed to generate SSH host key: {}", e))?;
@@ -47,7 +50,7 @@ async fn start_ssh_server(chatgpt: ChatGPT, llm_config: LlmEscalationConfig, rat
     };
 
     let config = Arc::new(config);
-    let mut server = SshHoneypotServer::new(chatgpt, llm_config, rate_limiter, tarpit_config);
+    let mut server = SshHoneypotServer::new(chatgpt, llm_config, rate_limiter, tarpit_config, fingerprint);
 
     let ssh_port = std::env::var("SSH_PORT").unwrap_or_else(|_| "22".to_string()).parse().unwrap_or(22);
     info!(
@@ -76,6 +79,7 @@ async fn start_listener(
     rate_limiter: RateLimiterRef,
     llm_config: config::LlmConfig,
     tarpit_config: TarpitConfig,
+    fingerprint: ServerFingerprint,
 ) -> tokio::io::Result<()> {
     let listener = TcpListener::bind(addr).await?;
     let listener_addr = listener.local_addr()?;
@@ -107,6 +111,7 @@ async fn start_listener(
                 let llm_escalation = llm_escalation.clone();
                 let rate_limiter = rate_limiter.clone();
                 let tarpit_config = tarpit_config.clone();
+                let fingerprint = fingerprint.clone();
 
                 task::spawn(async move {
                     // Apply initial response delay to simulate real server
@@ -120,7 +125,7 @@ async fn start_listener(
                                 client_ip = %ip,
                                 "New connection"
                             );
-                            let mut handler = SmtpHandler::new(chatgpt, llm_escalation, rate_limiter.clone(), tarpit_config);
+                            let mut handler = SmtpHandler::new(chatgpt, llm_escalation, rate_limiter.clone(), tarpit_config, fingerprint);
                             handler.handle_connection(stream).await;
                         }
                         Protocol::Http => {
@@ -130,7 +135,7 @@ async fn start_listener(
                                 client_ip = %ip,
                                 "New connection"
                             );
-                            let mut handler = HttpHandler::new(chatgpt, llm_escalation, rate_limiter.clone(), tarpit_config);
+                            let mut handler = HttpHandler::new(chatgpt, llm_escalation, rate_limiter.clone(), tarpit_config, fingerprint);
                             handler.handle_connection(stream).await;
                         }
                         Protocol::Ftp => {
@@ -140,7 +145,7 @@ async fn start_listener(
                                 client_ip = %ip,
                                 "New connection"
                             );
-                            let mut handler = FtpHandler::new(chatgpt, llm_escalation, rate_limiter.clone(), tarpit_config);
+                            let mut handler = FtpHandler::new(chatgpt, llm_escalation, rate_limiter.clone(), tarpit_config, fingerprint);
                             handler.handle_connection(stream).await;
                         }
                     }
@@ -240,14 +245,26 @@ async fn main() -> tokio::io::Result<()> {
         );
     }
 
+    // Load or generate server fingerprint for consistent identity
+    let fingerprint = load_or_generate_fingerprint(&app_config.fingerprint);
+    info!(
+        event_type = "operational",
+        component = "fingerprint",
+        hostname = %fingerprint.hostname,
+        os_version = %fingerprint.os_version,
+        http_server = %fingerprint.http_server,
+        "Fingerprint loaded"
+    );
+
     // Start SSH server (uses russh for real SSH protocol)
     let chatgpt_for_ssh = ChatGPT::new(&llm_config).unwrap();
     let llm_escalation_for_ssh = LlmEscalationConfig::default();
     let rate_limiter_for_ssh = rate_limiter.clone();
     let tarpit_config_for_ssh = tarpit_config.clone();
+    let fingerprint_for_ssh = fingerprint.clone();
 
     let ssh_handle = tokio::spawn(async move {
-        if let Err(e) = start_ssh_server(chatgpt_for_ssh, llm_escalation_for_ssh, rate_limiter_for_ssh, tarpit_config_for_ssh).await {
+        if let Err(e) = start_ssh_server(chatgpt_for_ssh, llm_escalation_for_ssh, rate_limiter_for_ssh, tarpit_config_for_ssh, fingerprint_for_ssh).await {
             error!(event_type = "operational", protocol = "SSH", error = %e, "SSH server failed");
         }
     });
@@ -268,9 +285,10 @@ async fn main() -> tokio::io::Result<()> {
         let rate_limiter = rate_limiter.clone();
         let llm_config = llm_config.clone();
         let tarpit_config = tarpit_config.clone();
+        let fingerprint = fingerprint.clone();
         let addr_clone = addr.clone();
         let handle = tokio::spawn(async move {
-            if let Err(e) = start_listener(&addr, protocol, rate_limiter, llm_config, tarpit_config).await {
+            if let Err(e) = start_listener(&addr, protocol, rate_limiter, llm_config, tarpit_config, fingerprint).await {
                 error!(event_type = "operational", address = %addr_clone, error = %e, "Listener failed");
             }
         });

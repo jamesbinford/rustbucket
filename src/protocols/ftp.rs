@@ -1,6 +1,7 @@
 use super::{ProtocolHandler, SessionState, LlmEscalationConfig, CommandLoopHandler, CommandResult, run_command_loop, Protocol};
 use crate::chatgpt::ChatService;
 use crate::config::TarpitConfig;
+use crate::fingerprint::ServerFingerprint;
 use crate::rate_limiter::RateLimiterRef;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tracing::{info, error};
@@ -27,10 +28,11 @@ pub struct FtpHandler<C: ChatService> {
     pub(crate) authenticated: bool,
     rate_limiter: RateLimiterRef,
     tarpit_config: TarpitConfig,
+    fingerprint: ServerFingerprint,
 }
 
 impl<C: ChatService> FtpHandler<C> {
-    pub fn new(chat_service: C, llm_config: LlmEscalationConfig, rate_limiter: RateLimiterRef, tarpit_config: TarpitConfig) -> Self {
+    pub fn new(chat_service: C, llm_config: LlmEscalationConfig, rate_limiter: RateLimiterRef, tarpit_config: TarpitConfig, fingerprint: ServerFingerprint) -> Self {
         Self {
             chat_service,
             session_state: SessionState::new(),
@@ -41,6 +43,7 @@ impl<C: ChatService> FtpHandler<C> {
             authenticated: false,
             rate_limiter,
             tarpit_config,
+            fingerprint,
         }
     }
 
@@ -243,7 +246,7 @@ impl<C: ChatService + Send + Sync> ProtocolHandler for FtpHandler<C> {
         );
 
         // Send FTP welcome banner
-        let banner = "220 (vsFTPd 3.0.3)\r\n";
+        let banner = &self.fingerprint.ftp_banner;
         if let Err(e) = stream.write_all(banner.as_bytes()).await {
             error!(
                 event_type = "operational",

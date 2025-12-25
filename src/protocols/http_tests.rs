@@ -5,6 +5,7 @@ mod tests {
     use crate::protocols::LlmEscalationConfig;
     use crate::chatgpt::ChatService;
     use crate::config::TarpitConfig;
+    use crate::fingerprint::ServerFingerprint;
     use crate::rate_limiter::RateLimiter;
     use std::sync::Arc;
 
@@ -16,8 +17,12 @@ mod tests {
         TarpitConfig::default()
     }
 
+    fn test_fingerprint() -> ServerFingerprint {
+        ServerFingerprint::default_static()
+    }
+
     fn new_test_handler(mock_chat: MockChatService, config: LlmEscalationConfig) -> HttpHandler<MockChatService> {
-        HttpHandler::new(mock_chat, config, test_rate_limiter(), test_tarpit_config())
+        HttpHandler::new(mock_chat, config, test_rate_limiter(), test_tarpit_config(), test_fingerprint())
     }
 
     // Mock ChatService for testing

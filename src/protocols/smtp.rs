@@ -1,6 +1,7 @@
 use super::{ProtocolHandler, SessionState, LlmEscalationConfig, CommandLoopHandler, CommandResult, run_command_loop, Protocol};
 use crate::chatgpt::ChatService;
 use crate::config::TarpitConfig;
+use crate::fingerprint::ServerFingerprint;
 use crate::rate_limiter::RateLimiterRef;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tracing::{info, error};
@@ -27,10 +28,11 @@ pub struct SmtpHandler<C: ChatService> {
     pub(crate) email_data: String,
     rate_limiter: RateLimiterRef,
     tarpit_config: TarpitConfig,
+    fingerprint: ServerFingerprint,
 }
 
 impl<C: ChatService> SmtpHandler<C> {
-    pub fn new(chat_service: C, llm_config: LlmEscalationConfig, rate_limiter: RateLimiterRef, tarpit_config: TarpitConfig) -> Self {
+    pub fn new(chat_service: C, llm_config: LlmEscalationConfig, rate_limiter: RateLimiterRef, tarpit_config: TarpitConfig, fingerprint: ServerFingerprint) -> Self {
         Self {
             chat_service,
             session_state: SessionState::new(),
@@ -42,6 +44,7 @@ impl<C: ChatService> SmtpHandler<C> {
             email_data: String::new(),
             rate_limiter,
             tarpit_config,
+            fingerprint,
         }
     }
 
@@ -61,9 +64,9 @@ impl<C: ChatService> SmtpHandler<C> {
         let cmd_upper = command.trim().to_uppercase();
 
         if cmd_upper.starts_with("HELO") {
-            Some("250 mail.example.com Hello, pleased to meet you\r\n".to_string())
+            Some(format!("250 {} Hello, pleased to meet you\r\n", self.fingerprint.smtp_hostname))
         } else if cmd_upper.starts_with("EHLO") {
-            Some("250-mail.example.com Hello\r\n250-PIPELINING\r\n250-SIZE 10240000\r\n250-VRFY\r\n250-ETRN\r\n250-STARTTLS\r\n250-AUTH PLAIN LOGIN\r\n250 8BITMIME\r\n".to_string())
+            Some(self.fingerprint.smtp_ehlo.clone())
         } else if cmd_upper.starts_with("MAIL FROM:") {
             let from_addr = cmd_upper
                 .strip_prefix("MAIL FROM:")
@@ -203,7 +206,7 @@ impl<C: ChatService + Send + Sync> ProtocolHandler for SmtpHandler<C> {
         );
 
         // Send SMTP greeting banner
-        let banner = "220 mail.example.com ESMTP Postfix (Ubuntu)\r\n";
+        let banner = &self.fingerprint.smtp_banner;
         if let Err(e) = stream.write_all(banner.as_bytes()).await {
             error!(
                 event_type = "operational",

@@ -1,5 +1,6 @@
 use super::{SessionState, LlmEscalationConfig, Protocol};
 use crate::chatgpt::ChatService;
+use crate::fingerprint::ServerFingerprint;
 use std::collections::HashSet;
 use tracing::{info, error};
 
@@ -17,19 +18,22 @@ pub struct SshShellSimulator<C: ChatService> {
     session_state: SessionState,
     llm_config: LlmEscalationConfig,
     known_commands: HashSet<String>,
+    fingerprint: ServerFingerprint,
     pub hostname: String,
     pub username: String,
     pub current_dir: String,
 }
 
 impl<C: ChatService> SshShellSimulator<C> {
-    pub fn new(chat_service: C, llm_config: LlmEscalationConfig) -> Self {
+    pub fn new(chat_service: C, llm_config: LlmEscalationConfig, fingerprint: ServerFingerprint) -> Self {
+        let hostname = fingerprint.hostname.clone();
         Self {
             chat_service,
             session_state: SessionState::new(),
             llm_config,
             known_commands: KNOWN_SSH_COMMANDS.iter().map(|s| s.to_string()).collect(),
-            hostname: "ubuntu-server".to_string(),
+            fingerprint,
+            hostname,
             username: "root".to_string(),
             current_dir: "/root".to_string(),
         }
@@ -74,7 +78,7 @@ impl<C: ChatService> SshShellSimulator<C> {
             "whoami" => Some(format!("{}\n", self.username)),
             "id" => Some(format!("uid=0({}) gid=0(root) groups=0(root)\n", self.username)),
             "uname" | "uname -a" => {
-                Some("Linux ubuntu-server 5.15.0-56-generic #62-Ubuntu SMP x86_64 GNU/Linux\n".to_string())
+                Some(self.fingerprint.uname_output.clone())
             }
             "cat /etc/passwd" => {
                 Some("root:x:0:0:root:/root:/bin/bash\ndaemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin\nbin:x:2:2:bin:/bin:/usr/sbin/nologin\nsys:x:3:3:sys:/dev:/usr/sbin/nologin\nsync:x:4:65534:sync:/bin:/bin/sync\n".to_string())
@@ -228,11 +232,15 @@ mod tests {
         }
     }
 
+    fn test_fingerprint() -> ServerFingerprint {
+        ServerFingerprint::default_static()
+    }
+
     #[test]
     fn test_shell_simulator_creation() {
         let chat_service = MockChatService;
         let llm_config = LlmEscalationConfig::default();
-        let simulator = SshShellSimulator::new(chat_service, llm_config);
+        let simulator = SshShellSimulator::new(chat_service, llm_config, test_fingerprint());
 
         assert_eq!(simulator.username, "root");
         assert_eq!(simulator.hostname, "ubuntu-server");
@@ -243,7 +251,7 @@ mod tests {
     fn test_is_known_command() {
         let chat_service = MockChatService;
         let llm_config = LlmEscalationConfig::default();
-        let simulator = SshShellSimulator::new(chat_service, llm_config);
+        let simulator = SshShellSimulator::new(chat_service, llm_config, test_fingerprint());
 
         assert!(simulator.is_known_command("ls"));
         assert!(simulator.is_known_command("pwd"));
@@ -256,7 +264,7 @@ mod tests {
     fn test_get_prompt() {
         let chat_service = MockChatService;
         let llm_config = LlmEscalationConfig::default();
-        let mut simulator = SshShellSimulator::new(chat_service, llm_config);
+        let mut simulator = SshShellSimulator::new(chat_service, llm_config, test_fingerprint());
 
         assert_eq!(simulator.get_prompt(), "root@ubuntu-server:/root# ");
 
@@ -268,7 +276,7 @@ mod tests {
     fn test_is_exit_command() {
         let chat_service = MockChatService;
         let llm_config = LlmEscalationConfig::default();
-        let simulator = SshShellSimulator::new(chat_service, llm_config);
+        let simulator = SshShellSimulator::new(chat_service, llm_config, test_fingerprint());
 
         assert!(simulator.is_exit_command("exit"));
         assert!(simulator.is_exit_command("quit"));
