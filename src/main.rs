@@ -178,10 +178,32 @@ async fn main() -> tokio::io::Result<()> {
     let instance_name = generate_instance_name();
     info!(event_type = "operational", instance_name = %instance_name, "Instance started");
 
-    // Initialize S3 logger
+    // Register this instance first (to get S3 config from registry)
+    let registry_s3_config = registration::register_instance(&app_config.registration).await;
+
+    // Build S3 config - registry config takes precedence over local config
+    let s3_config = if let Some(ref reg_config) = registry_s3_config {
+        info!(
+            event_type = "operational",
+            component = "s3_logger",
+            bucket = %reg_config.bucket,
+            region = %reg_config.region,
+            "Using S3 config from registry"
+        );
+        config::S3Config {
+            bucket_name: Some(reg_config.bucket.clone()),
+            region: Some(reg_config.region.clone()),
+            prefix: reg_config.prefix.clone(),
+            ..app_config.s3_logging.clone()
+        }
+    } else {
+        app_config.s3_logging.clone()
+    };
+
+    // Initialize S3 logger with merged config
     match S3Logger::new(
         instance_name.clone(),
-        app_config.s3_logging.clone(),
+        s3_config,
         &app_config.general,
     ).await {
         Ok(s3_logger) => {
@@ -196,9 +218,6 @@ async fn main() -> tokio::io::Result<()> {
             error!(event_type = "operational", component = "s3_logger", error = %e, "Failed to initialize S3 logger");
         }
     }
-
-    // Register this instance (optional)
-    registration::register_instance(&app_config.registration).await;
 
     // Initialize shared rate limiter
     let rate_limiter: RateLimiterRef = Arc::new(RateLimiter::new(app_config.rate_limiting.clone()));
