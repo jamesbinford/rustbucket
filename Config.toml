@@ -10,12 +10,35 @@ log_directory = "./logs"
 verbose = false
 
 [llm]
-# OpenAI model to use (e.g., "gpt-3.5-turbo", "gpt-4", "gpt-4-turbo")
-model = "gpt-3.5-turbo"
+# LLM Provider: "openai", "claude", "gemini", or "ollama"
+# Each provider requires its own API key environment variable:
+#   - openai:  OPENAI_API_KEY (or CHATGPT_API_KEY for backwards compatibility)
+#   - claude:  ANTHROPIC_API_KEY
+#   - gemini:  GEMINI_API_KEY
+#   - ollama:  No API key required (runs locally)
+provider = "openai"
 
-# These messages are sent to the target LLM before every interaction from the Rustbucket. Use them to keep the LLM
+# Model to use (provider-specific examples):
+#   - openai:  "gpt-4o-mini", "gpt-4", "gpt-4-turbo"
+#   - claude:  "claude-3-haiku-20240307", "claude-3-sonnet-20240229"
+#   - gemini:  "gemini-1.5-flash", "gemini-1.5-pro"
+#   - ollama:  "llama3.2", "mistral", "codellama"
+model = "gpt-4o-mini"
+
+# For Ollama only: host URL (default: http://localhost:11434)
+# ollama_host = "http://localhost:11434"
+
+# These messages are sent to the LLM before every interaction. Use them to keep the LLM
 # in character! The longer we can keep an attacker interacting with the bucket, the richer our dataset.
 static_messages = { message1 = "You are an Ubuntu Server.", message2 = "Respond as an Ubuntu server would. Do not break character." }
+
+# Optional: Protocol-specific prompts for more realistic responses
+# If not specified, defaults are used for each protocol
+# [llm.prompts]
+# ssh = "You are an Ubuntu 22.04 server with bash shell. Respond exactly as a Linux terminal would."
+# http = "You are an Apache 2.4 web server on Ubuntu. Return realistic HTTP responses."
+# ftp = "You are a vsftpd FTP server. Use proper FTP response codes (1xx-5xx)."
+# smtp = "You are a Postfix SMTP server. Follow RFC 5321 response codes."
 
 [llm_escalation]
 # Controls when to use LLM vs native protocol responses for cost optimization
