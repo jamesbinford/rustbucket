@@ -4,10 +4,15 @@
 
 Rustbucket is a lightweight honeypot written in Rust that runs on virtual machines and containers exposed to the internet. By simulating common services on commonly attacked ports, Rustbucket captures and logs malicious activity for analysis.
 
-The fun sauce is that Rustbucket also has a built-in ChatGPT integration, allowing it to generate responses to attackers in real-time. This can be used to confuse attackers, gather more information, or simply have fun with them.
+The fun sauce is that Rustbucket has built-in LLM integration, allowing it to generate responses to attackers in real-time. This can be used to confuse attackers, gather more information, or simply have fun with them.
 
-Admittedly, ChatGPT can only pretend to be an Ubuntu server about 60% of the time. Nonetheless, it's a fun addition to the honeypot that can lead to some interesting interactions.
-You can also modify the prompts yourself in Config.toml to make ChatGPT behavior however you'd like!
+**Supported LLM Providers:**
+- **OpenAI** (GPT-4, GPT-4o-mini, etc.)
+- **Anthropic Claude** (Claude 3 Haiku, Sonnet, Opus)
+- **Google Gemini** (Gemini 1.5 Flash, Pro)
+- **Ollama** (local/self-hosted - Llama, Mistral, etc.)
+
+You can modify the prompts in Config.toml to customize how the LLM responds to attackers!
 
 ## Quick Start
 
@@ -17,7 +22,11 @@ Get Rustbucket running in 2 minutes:
 git clone https://github.com/jamesbinford/rustbucket.git
 cd rustbucket
 cp deploy/docker/.env.example .env
-# Edit .env and add your CHATGPT_API_KEY
+# Edit .env and add your API key for your chosen provider:
+#   OPENAI_API_KEY=sk-...      (OpenAI)
+#   ANTHROPIC_API_KEY=sk-...   (Claude)
+#   GEMINI_API_KEY=AIza...     (Gemini)
+#   (no key needed for Ollama)
 docker-compose -f deploy/docker/docker-compose.yml up -d
 ```
 
@@ -26,8 +35,8 @@ See [docs/deployment.md](docs/deployment.md) for detailed deployment options (AW
 ## Features
 
 - **Protocol Emulation**: Mimics popular services such as SSH, SMTP, HTTP, and FTP with intelligent response generation.
-- **LLM Integration**: Built-in ChatGPT integration for dynamic, realistic responses to attacker commands.
-- **Smart LLM Escalation**: Automatically escalates unknown or suspicious commands to ChatGPT while handling known commands natively to minimize API costs.
+- **Multi-LLM Support**: Choose from OpenAI, Claude, Gemini, or Ollama (local) for dynamic, realistic responses to attacker commands.
+- **Smart LLM Escalation**: Automatically escalates unknown or suspicious commands to LLM while handling known commands natively to minimize API costs.
 - **Configurable Ports**: Easily configure which ports to monitor and the services to emulate through a TOML configuration file.
 - **S3 Log Upload**: Automatically upload daily rotated log files to AWS S3 with configurable retention and cleanup.
 - **Structured Logging**: Captures all interactions with daily log rotation, providing valuable insights into potential attacks.
@@ -37,8 +46,8 @@ See [docs/deployment.md](docs/deployment.md) for detailed deployment options (AW
 ### Prerequisites
 
 - Rust (1.50 or later)
-- Cargo (Rust’s package manager and build system)
-- ChatGPT API Key with usage quota (it doesn't use much!)
+- Cargo (Rust's package manager and build system)
+- API key for your chosen LLM provider (or Ollama installed locally)
 
 ### Installation
 
@@ -56,7 +65,7 @@ See [docs/deployment.md](docs/deployment.md) for detailed deployment options (AW
    ```bash
    docker build -t rustbucket .
    ```
-5. Make sure your OpenAI API key is set in a CHATGPT_API_KEY environment variable.
+5. Set the API key for your chosen provider (see [LLM Configuration](#llm-configuration) below).
 
 ## Configuration
 
@@ -87,16 +96,67 @@ sms = false   # SMS honeypot (not yet implemented)
 
 ### LLM Configuration
 
-Configure ChatGPT prompts and behavior:
+Rustbucket supports multiple LLM providers. Configure your preferred provider in `Config.toml`:
 
 ```toml
 [llm]
+provider = "openai"  # Options: "openai", "claude", "gemini", "ollama"
+model = "gpt-4o-mini"
+
 [llm.static_messages]
 message1 = "You are an Ubuntu 20.04 server..."
 message2 = "Respond exactly as a real Ubuntu server would..."
+
+# Optional: Protocol-specific prompts for more realistic responses
+[llm.prompts]
+ssh = "You are an Ubuntu 22.04 server with bash shell..."
+http = "You are an Apache 2.4 web server on Ubuntu..."
+ftp = "You are a vsftpd FTP server..."
+smtp = "You are a Postfix SMTP server..."
+
+# For Ollama only:
+# ollama_host = "http://localhost:11434"
 ```
 
-Customize these messages to control how ChatGPT responds to attackers.
+#### Provider-Specific Setup
+
+| Provider | Environment Variable | Default Model | Notes |
+|----------|---------------------|---------------|-------|
+| OpenAI | `OPENAI_API_KEY` or `CHATGPT_API_KEY` | gpt-4o-mini | Recommended for best quality |
+| Claude | `ANTHROPIC_API_KEY` | claude-3-haiku-20240307 | Fast and cost-effective |
+| Gemini | `GEMINI_API_KEY` | gemini-1.5-flash | Google's latest model |
+| Ollama | (none required) | llama3.2 | Self-hosted, no API costs |
+
+#### Example: Using Claude
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-your-key-here
+```
+
+```toml
+[llm]
+provider = "claude"
+model = "claude-3-haiku-20240307"
+```
+
+#### Example: Using Ollama (Local)
+
+First, install and run Ollama:
+```bash
+# Install Ollama (see https://ollama.ai)
+ollama pull llama3.2
+ollama serve
+```
+
+Then configure Rustbucket:
+```toml
+[llm]
+provider = "ollama"
+model = "llama3.2"
+ollama_host = "http://localhost:11434"  # Optional, this is the default
+```
+
+No API key is required for Ollama - it runs entirely on your local machine.
 
 ### S3 Log Upload
 
@@ -198,8 +258,11 @@ Registration sends system information (IP, OS, resource usage) to help manage mu
 ### Running Rustbucket
 
 ```bash
-# Set your ChatGPT API key
-export CHATGPT_API_KEY=sk-your-api-key-here
+# Set your API key (choose one based on your provider)
+export OPENAI_API_KEY=sk-your-api-key-here      # OpenAI
+# export ANTHROPIC_API_KEY=sk-ant-your-key-here # Claude
+# export GEMINI_API_KEY=AIza-your-key-here      # Gemini
+# (no key needed for Ollama)
 
 # Run the honeypot
 cargo run --release
@@ -208,17 +271,27 @@ cargo run --release
 Or with Docker:
 
 ```bash
-docker run -e CHATGPT_API_KEY=sk-your-api-key-here \
+# OpenAI example
+docker run -e OPENAI_API_KEY=sk-your-api-key-here \
   -p 22:22 -p 25:25 -p 80:80 -p 21:21 \
   -v ./logs:/app/logs \
+  rustbucket
+
+# Claude example
+docker run -e ANTHROPIC_API_KEY=sk-ant-your-key-here \
+  -p 22:22 -p 25:25 -p 80:80 -p 21:21 \
+  -v ./logs:/app/logs \
+  -v ./Config.toml:/app/Config.toml \
   rustbucket
 ```
 
 ### Running with S3 Logging
 
 ```bash
+# Set your LLM provider API key
+export OPENAI_API_KEY=sk-your-api-key-here  # or other provider
+
 # Configure S3 via environment variables
-export CHATGPT_API_KEY=sk-your-api-key-here
 export S3_LOGGING_ENABLED=true
 export S3_BUCKET_NAME=my-honeypot-logs
 export S3_REGION=us-east-1
@@ -250,10 +323,10 @@ If S3 logging is enabled, rotated logs are automatically uploaded to your S3 buc
 
 ### Smart LLM Escalation
 
-Rustbucket minimizes ChatGPT API costs by intelligently deciding when to escalate commands to the LLM:
+Rustbucket minimizes API costs by intelligently deciding when to escalate commands to the LLM:
 
 1. **Known Commands**: Standard protocol commands (e.g., `ls`, `pwd`, `USER`, `HELO`) are handled natively with pre-defined responses
-2. **Unknown Commands**: Suspicious or unusual commands are escalated to ChatGPT for dynamic responses
+2. **Unknown Commands**: Suspicious or unusual commands are escalated to the configured LLM for dynamic responses
 3. **Bot Detection**: Rapid-fire commands or patterns suggesting automated scanning skip LLM escalation to save costs
 4. **Configurable Thresholds**: Set escalation thresholds and patterns in `Config.toml`
 
@@ -265,7 +338,7 @@ Each protocol handler (SSH, FTP, SMTP, HTTP) implements:
 
 - **Command Recognition**: Identifies and validates protocol-specific commands
 - **Native Responses**: Returns appropriate responses for known commands
-- **LLM Integration**: Escalates unknown/suspicious commands to ChatGPT
+- **LLM Integration**: Escalates unknown/suspicious commands to your configured LLM provider
 - **Session State**: Tracks session information for realistic interactions
 
 ## Development
