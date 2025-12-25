@@ -1,5 +1,5 @@
 use super::{SessionState, LlmEscalationConfig, Protocol};
-use crate::chatgpt::ChatService;
+use crate::llm::ChatService;
 use crate::fingerprint::ServerFingerprint;
 use std::collections::HashSet;
 use tracing::{info, error};

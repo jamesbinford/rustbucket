@@ -26,18 +26,39 @@ impl Default for GeneralConfig {
     }
 }
 
-/// LLM (OpenAI/ChatGPT) configuration
+/// LLM provider selection
+#[derive(Debug, Clone, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum LlmProvider {
+    #[default]
+    #[serde(alias = "openai")]
+    OpenAI,
+    #[serde(alias = "claude", alias = "anthropic")]
+    Claude,
+    #[serde(alias = "gemini", alias = "google")]
+    Gemini,
+    #[serde(alias = "ollama")]
+    Ollama,
+}
+
+/// LLM configuration
 #[derive(Debug, Clone, Deserialize)]
 pub struct LlmConfig {
+    /// Which LLM provider to use (default: openai)
+    #[serde(default)]
+    pub provider: LlmProvider,
     #[serde(default = "default_model")]
     pub model: String,
     pub static_messages: StaticMessages,
     /// Protocol-specific prompts (optional, falls back to static_messages)
     #[serde(default)]
     pub prompts: Option<ProtocolPrompts>,
+    /// For Ollama: host URL (default: http://localhost:11434)
+    #[serde(default)]
+    pub ollama_host: Option<String>,
 }
 
-fn default_model() -> String { "gpt-3.5-turbo".to_string() }
+fn default_model() -> String { "gpt-4o-mini".to_string() }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct StaticMessages {
@@ -57,12 +78,14 @@ pub struct ProtocolPrompts {
 impl Default for LlmConfig {
     fn default() -> Self {
         Self {
+            provider: LlmProvider::default(),
             model: default_model(),
             static_messages: StaticMessages {
                 message1: "You are an Ubuntu Server.".to_string(),
                 message2: "Respond as an Ubuntu server would. Do not break character.".to_string(),
             },
             prompts: None,
+            ollama_host: None,
         }
     }
 }
@@ -303,8 +326,10 @@ mod tests {
     #[test]
     fn test_llm_config_default() {
         let config = LlmConfig::default();
-        assert_eq!(config.model, "gpt-3.5-turbo");
+        assert_eq!(config.provider, LlmProvider::OpenAI);
+        assert_eq!(config.model, "gpt-4o-mini");
         assert!(!config.static_messages.message1.is_empty());
+        assert!(config.ollama_host.is_none());
     }
 
     #[test]

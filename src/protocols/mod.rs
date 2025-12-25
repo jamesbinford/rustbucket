@@ -8,7 +8,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use std::time::{Duration, Instant};
 use std::collections::HashSet;
 use tracing::{info, error};
-use crate::chatgpt::{ChatService, Protocol};
+use crate::llm::{ChatService, Protocol};
 use crate::config::TarpitConfig;
 use crate::rate_limiter::RateLimiterRef;
 use crate::tarpit::Tarpit;

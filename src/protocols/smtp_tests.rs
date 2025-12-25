@@ -3,7 +3,7 @@
 mod tests {
     use crate::protocols::smtp::SmtpHandler;
     use crate::protocols::LlmEscalationConfig;
-    use crate::chatgpt::ChatService;
+    use crate::llm::ChatService;
     use crate::config::TarpitConfig;
     use crate::fingerprint::ServerFingerprint;
     use crate::rate_limiter::RateLimiter;

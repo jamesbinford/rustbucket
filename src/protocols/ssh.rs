@@ -1,6 +1,6 @@
 use super::ssh_shell::SshShellSimulator;
 use super::LlmEscalationConfig;
-use crate::chatgpt::ChatService;
+use crate::llm::ChatService;
 use crate::config::TarpitConfig;
 use crate::fingerprint::ServerFingerprint;
 use crate::rate_limiter::RateLimiterRef;

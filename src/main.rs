@@ -1,10 +1,10 @@
-mod chatgpt;
 mod config;
 mod fingerprint;
-mod registration;
+mod llm;
 mod protocols;
-mod s3_logger;
 mod rate_limiter;
+mod registration;
+mod s3_logger;
 mod tarpit;
 
 use tokio::net::TcpListener;
@@ -12,9 +12,9 @@ use tokio::task;
 use tracing::{info, error};
 use tracing_subscriber::EnvFilter;
 use tracing_appender::rolling;
-use chatgpt::ChatGPT;
 use config::{AppConfig, TarpitConfig};
 use fingerprint::ServerFingerprint;
+use llm::LlmProvider;
 use protocols::{ProtocolHandler, LlmEscalationConfig};
 use protocols::ssh::SshHoneypotServer;
 use protocols::http::HttpHandler;
@@ -30,7 +30,7 @@ use std::sync::Arc;
 use russh::server::Server as _;
 
 /// Start the SSH honeypot server using russh (real SSH protocol)
-async fn start_ssh_server(chatgpt: ChatGPT, llm_config: LlmEscalationConfig, rate_limiter: RateLimiterRef, tarpit_config: TarpitConfig, fingerprint: ServerFingerprint) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn start_ssh_server(llm_provider: LlmProvider, llm_config: LlmEscalationConfig, rate_limiter: RateLimiterRef, tarpit_config: TarpitConfig, fingerprint: ServerFingerprint) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Generate SSH host key (Ed25519)
     let key = russh::keys::PrivateKey::random(&mut OsRng, russh::keys::Algorithm::Ed25519)
         .map_err(|e| format!("Failed to generate SSH host key: {}", e))?;
@@ -50,7 +50,7 @@ async fn start_ssh_server(chatgpt: ChatGPT, llm_config: LlmEscalationConfig, rat
     };
 
     let config = Arc::new(config);
-    let mut server = SshHoneypotServer::new(chatgpt, llm_config, rate_limiter, tarpit_config, fingerprint);
+    let mut server = SshHoneypotServer::new(llm_provider, llm_config, rate_limiter, tarpit_config, fingerprint);
 
     let ssh_port = std::env::var("SSH_PORT").unwrap_or_else(|_| "22".to_string()).parse().unwrap_or(22);
     info!(
@@ -85,8 +85,8 @@ async fn start_listener(
     let listener_addr = listener.local_addr()?;
     println!("Listening on {} ({:?})", listener_addr, protocol);
 
-    // Instantiate ChatGPT with config
-    let chatgpt = ChatGPT::new(&llm_config).unwrap();
+    // Instantiate LLM provider with config
+    let llm_provider = LlmProvider::new(&llm_config).unwrap();
     let llm_escalation = LlmEscalationConfig::default();
 
     loop {
@@ -107,7 +107,7 @@ async fn start_listener(
                 }
 
                 println!("New connection on {} from {}", listener_addr, client_addr);
-                let chatgpt = chatgpt.clone();
+                let llm_provider = llm_provider.clone();
                 let llm_escalation = llm_escalation.clone();
                 let rate_limiter = rate_limiter.clone();
                 let tarpit_config = tarpit_config.clone();
@@ -125,7 +125,7 @@ async fn start_listener(
                                 client_ip = %ip,
                                 "New connection"
                             );
-                            let mut handler = SmtpHandler::new(chatgpt, llm_escalation, rate_limiter.clone(), tarpit_config, fingerprint);
+                            let mut handler = SmtpHandler::new(llm_provider, llm_escalation, rate_limiter.clone(), tarpit_config, fingerprint);
                             handler.handle_connection(stream).await;
                         }
                         Protocol::Http => {
@@ -135,7 +135,7 @@ async fn start_listener(
                                 client_ip = %ip,
                                 "New connection"
                             );
-                            let mut handler = HttpHandler::new(chatgpt, llm_escalation, rate_limiter.clone(), tarpit_config, fingerprint);
+                            let mut handler = HttpHandler::new(llm_provider, llm_escalation, rate_limiter.clone(), tarpit_config, fingerprint);
                             handler.handle_connection(stream).await;
                         }
                         Protocol::Ftp => {
@@ -145,7 +145,7 @@ async fn start_listener(
                                 client_ip = %ip,
                                 "New connection"
                             );
-                            let mut handler = FtpHandler::new(chatgpt, llm_escalation, rate_limiter.clone(), tarpit_config, fingerprint);
+                            let mut handler = FtpHandler::new(llm_provider, llm_escalation, rate_limiter.clone(), tarpit_config, fingerprint);
                             handler.handle_connection(stream).await;
                         }
                     }
@@ -257,14 +257,14 @@ async fn main() -> tokio::io::Result<()> {
     );
 
     // Start SSH server (uses russh for real SSH protocol)
-    let chatgpt_for_ssh = ChatGPT::new(&llm_config).unwrap();
+    let llm_provider_for_ssh = LlmProvider::new(&llm_config).unwrap();
     let llm_escalation_for_ssh = LlmEscalationConfig::default();
     let rate_limiter_for_ssh = rate_limiter.clone();
     let tarpit_config_for_ssh = tarpit_config.clone();
     let fingerprint_for_ssh = fingerprint.clone();
 
     let ssh_handle = tokio::spawn(async move {
-        if let Err(e) = start_ssh_server(chatgpt_for_ssh, llm_escalation_for_ssh, rate_limiter_for_ssh, tarpit_config_for_ssh, fingerprint_for_ssh).await {
+        if let Err(e) = start_ssh_server(llm_provider_for_ssh, llm_escalation_for_ssh, rate_limiter_for_ssh, tarpit_config_for_ssh, fingerprint_for_ssh).await {
             error!(event_type = "operational", protocol = "SSH", error = %e, "SSH server failed");
         }
     });

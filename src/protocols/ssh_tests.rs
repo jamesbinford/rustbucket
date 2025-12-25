@@ -3,7 +3,7 @@
 mod tests {
     use crate::protocols::ssh_shell::SshShellSimulator;
     use crate::protocols::LlmEscalationConfig;
-    use crate::chatgpt::ChatService;
+    use crate::llm::ChatService;
     use crate::fingerprint::ServerFingerprint;
 
     fn test_fingerprint() -> ServerFingerprint {

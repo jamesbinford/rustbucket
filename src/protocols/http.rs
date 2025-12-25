@@ -1,5 +1,5 @@
 use super::{ProtocolHandler, SessionState, LlmEscalationConfig, Protocol};
-use crate::chatgpt::ChatService;
+use crate::llm::ChatService;
 use crate::config::TarpitConfig;
 use crate::fingerprint::ServerFingerprint;
 use crate::rate_limiter::RateLimiterRef;
