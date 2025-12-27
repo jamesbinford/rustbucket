@@ -56,6 +56,8 @@ struct RegistrationPayload {
     ip_address: String,
     operating_system: String,
     token: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    registration_key: Option<String>,
 }
 
 /// Get registration URL from environment variable or config
@@ -124,6 +126,7 @@ async fn send_registration_request(
         ip_address: system_info.ip_address.clone(),
         operating_system: system_info.operating_system.clone(),
         token: token.to_string(),
+        registration_key: api_key.map(|k| k.to_string()),
     };
 
     // Ensure URL ends with trailing slash for Django compatibility
@@ -134,7 +137,7 @@ async fn send_registration_request(
     };
 
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(30))
         .build()
         .expect("Failed to create HTTP client");
 
@@ -486,6 +489,7 @@ mod tests {
             ip_address: "192.168.1.100".to_string(),
             operating_system: "linux (x86_64)".to_string(),
             token: "test_token_32_chars_long_string".to_string(),
+            registration_key: Some("test_api_key".to_string()),
         };
 
         let json_result = serde_json::to_string(&payload);
@@ -496,6 +500,7 @@ mod tests {
         assert!(json_str.contains("test_token_32_chars_long_string"), "JSON should contain the token");
         assert!(json_str.contains("192.168.1.100"), "JSON should contain the IP address");
         assert!(json_str.contains("linux (x86_64)"), "JSON should contain the operating system");
+        assert!(json_str.contains("test_api_key"), "JSON should contain the registration key");
     }
 
     #[test]
